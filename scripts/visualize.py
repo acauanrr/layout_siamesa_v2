@@ -1,12 +1,20 @@
 #!/usr/bin/env python
 """Visualiza o modelo funcionando: clusters do espaco aprendido, prototipo e decisao.
 
-Gera em artifacts/reports/:
+PRINCIPAL (para a reuniao):
+  clusters_apresentacao.html  ANTES x DEPOIS do treino, lado a lado, interativo e
+                              autoexplicativo (com roteiro do que falar). E o arquivo
+                              a ser apresentado: mostra o PROPOSITO da clusterizacao.
+
+Apoio (figuras estaticas do relatorio):
   embedding_space.png       DINOv2 cru (antes)  vs  z aprendido (depois) — 2D (UMAP)
   decision_space.png        histograma da distancia ao prototipo limpo + limiar; curva PR
-  embedding_interactive.html  scatter interativo (hover mostra arquivo, classe, scores)
+  outcome_space.png         TEST por TP/TN/FP/FN; tradeoff_outcome.png limiares lado a lado
+
+Aprofundamento (opcional, --extra-html): embedding_interactive*.html por acerto/erro.
 
 Uso: python scripts/visualize.py --config configs/default.yaml
+     python scripts/visualize.py --config configs/default.yaml --extra-html
 """
 from __future__ import annotations
 
@@ -16,7 +24,7 @@ from pathlib import Path
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import normalize
-from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import precision_recall_curve, roc_auc_score
 
 from siamese.config import Config
 from siamese.features import load_embeddings, read_manifest
@@ -45,6 +53,20 @@ def _outcome(fused: np.ndarray, true: np.ndarray, thr: float) -> np.ndarray:
     return oc
 
 
+def _centroid_auroc(X: np.ndarray, true: np.ndarray) -> float:
+    """AUROC de 'distancia ao centro das telas limpas' como detector de erro.
+
+    Mede, de forma objetiva e fiel a regra de decisao (distancia ao prototipo),
+    o quao bem o espaco separa erro de nao-erro SO pela distancia. E o numero que
+    resume o proposito da clusterizacao: deve subir do espaco cru (ANTES) para o
+    espaco z aprendido (DEPOIS)."""
+    Xn = normalize(X)
+    c = Xn[true == 0].mean(0)
+    c = c / (np.linalg.norm(c) + 1e-9)
+    score = 1.0 - Xn @ c            # distancia (1 - cos) ao centro do limpo
+    return float(roc_auc_score(true, score))
+
+
 def reduce_2d(X: np.ndarray, seed: int = 42) -> np.ndarray:
     Xn = normalize(X)
     try:
@@ -62,6 +84,8 @@ def main() -> None:
     ap.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
     ap.add_argument("--target-precisions", default="0.85,0.95",
                     help="lista p/ comparar o tradeoff precisao×recall lado a lado")
+    ap.add_argument("--extra-html", action="store_true",
+                    help="gera tambem os HTML de acerto/erro (TP/TN/FP/FN) por limiar")
     args = ap.parse_args()
     precisions = [float(x) for x in args.target_precisions.split(",")]
     cfg = Config.load(args.config)
@@ -128,19 +152,31 @@ def main() -> None:
     true = np.where(classe == "limpo", 0, 1)
     outcome = _outcome(fused, true, thr)   # no limiar primario (config)
 
+    # separabilidade objetiva por distancia ao "normal": ANTES (cru) vs DEPOIS (z)
+    sep_raw = _centroid_auroc(RAW, true)
+    sep_z = _centroid_auroc(Z, true)
+
+    # ---- PRINCIPAL: antes x depois, interativo e autoexplicativo (apresentar isto) ----
+    _interactive_presentation(rep, raw2, z2, proto2, classe, split, names, sp, fused,
+                              sep_raw, sep_z)
+
+    # ---- figuras estaticas de apoio (usadas no relatorio) ----
     _static_embedding(rep, raw2, z2, proto2, classe)
     _static_decision(rep, sp, classe, thr, te, z_te, dec, fus, aux_te)
-    _interactive(rep, z2, proto2, classe, split, names, sp, fused, thr)
-    _interactive_outcome(rep, z2, proto2, outcome, classe, split, names, sp, fused, thr)
     _static_outcome(rep, z2, proto2, outcome, split)
 
     # ---- TRADEOFF precisao×recall: varios limiares lado a lado ----
     thr_by_p = {p: select_threshold_for_precision(fused_va, va["label"], p)[0] for p in precisions}
     _tradeoff_static(rep, z2, proto2, split, true, fused, thr_by_p)
-    for p, t in thr_by_p.items():
-        oc = _outcome(fused, true, t)
-        _interactive_outcome(rep, z2, proto2, oc, classe, split, names, sp, fused, t,
-                             suffix=f"_p{p:.2f}")
+
+    # ---- HTML de aprofundamento (acerto/erro TP/TN/FP/FN), apenas com --extra-html ----
+    if args.extra_html:
+        _interactive(rep, z2, proto2, classe, split, names, sp, fused, thr)
+        _interactive_outcome(rep, z2, proto2, outcome, classe, split, names, sp, fused, thr)
+        for p, t in thr_by_p.items():
+            oc = _outcome(fused, true, t)
+            _interactive_outcome(rep, z2, proto2, oc, classe, split, names, sp, fused, t,
+                                 suffix=f"_p{p:.2f}")
 
     # resumo no terminal: metrica de test por limiar
     print("\n  Tradeoff (TEST held-out):")
@@ -155,10 +191,14 @@ def main() -> None:
         print(f"    alvo={p:.2f} thr={thr_by_p[p]:.3f}: precisao={prec:.3f} recall={rec:.3f} "
               f"(TP={tp} FP={fp} FN={fn})")
     print(f"\nVisualizacoes em {rep}/:")
-    print("  embedding_space.png  decision_space.png  outcome_space.png")
-    print("  tradeoff_outcome.png  <- comparacao lado a lado dos limiares")
-    print("  embedding_interactive.html  embedding_interactive_outcome.html")
-    print("  " + "  ".join(f"embedding_interactive_outcome_p{p:.2f}.html" for p in precisions))
+    print(f"  >>> clusters_apresentacao.html  <- PRINCIPAL (apresentar na reuniao)")
+    print(f"      separabilidade por distancia ao normal (AUROC): ANTES {sep_raw:.2f} -> DEPOIS {sep_z:.2f}")
+    print("  embedding_space.png  decision_space.png  outcome_space.png  tradeoff_outcome.png  (apoio)")
+    if args.extra_html:
+        print("  embedding_interactive.html  embedding_interactive_outcome.html  "
+              + "  ".join(f"embedding_interactive_outcome_p{p:.2f}.html" for p in precisions))
+    else:
+        print("  (use --extra-html p/ os HTML de acerto/erro TP/TN/FP/FN por limiar)")
 
 
 def _static_embedding(rep, raw2, z2, proto2, classe):
@@ -212,6 +252,145 @@ def _interactive(rep, z2, proto2, classe, split, names, sp, fused, thr):
                             "limpo=verde, erro real=vermelho, sintetico=laranja",
                       width=1100, height=750, hovermode="closest")
     fig.write_html(rep / "embedding_interactive.html")
+
+
+_PAGE_TEMPLATE = """<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clusters — antes × depois (apresentação)</title>
+<style>
+  :root { --ink:#1A2027; --muted:#5b6b78; --line:#e3e8ee;
+          --clean:#2ca02c; --real:#d62728; --synth:#ff7f0e; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",Helvetica,Arial,sans-serif; color:var(--ink);
+         background:#f4f6f9; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1220px; margin:0 auto; padding:24px 20px 52px; }
+  header h1 { font-size:23px; margin:0 0 8px; letter-spacing:-0.01em; }
+  header p.lead { font-size:15px; color:var(--muted); margin:0; line-height:1.55; max-width:980px; }
+  header p.lead b { color:var(--ink); }
+  .card { background:#fff; border:1px solid var(--line); border-radius:14px;
+          box-shadow:0 1px 3px rgba(16,24,40,.05); }
+  .plot { padding:10px 10px 2px; margin:18px 0; }
+  .guia { padding:22px 26px; }
+  .guia h2 { font-size:13px; letter-spacing:.06em; text-transform:uppercase;
+             color:var(--muted); margin:0 0 16px; }
+  ol.fala { margin:0; padding:0; list-style:none; counter-reset:n; }
+  ol.fala li { counter-increment:n; position:relative; padding:0 0 16px 46px; line-height:1.6; font-size:15px; }
+  ol.fala li:last-child { padding-bottom:0; }
+  ol.fala li::before { content:counter(n); position:absolute; left:0; top:-1px; width:30px; height:30px;
+                       border-radius:50%; background:var(--ink); color:#fff; font-weight:600;
+                       display:flex; align-items:center; justify-content:center; font-size:14px; }
+  .chip { display:inline-block; padding:1px 9px; border-radius:999px; font-size:12.5px; font-weight:600;
+          color:#fff; }
+  .num { font-variant-numeric:tabular-nums; font-weight:700; }
+  .tips { margin:18px 0 0; padding-top:16px; border-top:1px dashed var(--line);
+          font-size:13.5px; color:var(--muted); line-height:1.6; }
+  .tips b { color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Espaço de embeddings — antes × depois do treino</h1>
+    <p class="lead">A rede siamesa aprende um espaço onde as <b>telas limpas se agrupam</b> (perto do ★)
+       e os <b>erros se afastam</b>. A decisão é simplesmente a <b>distância ao ★ (protótipo do limpo)</b>:
+       perto ⇒ limpo, longe ⇒ erro.</p>
+  </header>
+
+  <div class="card plot">__PLOT__</div>
+
+  <div class="card guia">
+    <h2>O que dizer na apresentação</h2>
+    <ol class="fala">
+      <li><b>Antes (esquerda).</b> No DINOv2 puro, <span class="chip" style="background:var(--clean)">limpas</span>
+        e <span class="chip" style="background:var(--real)">erros</span> ficam <b>misturados</b> — separar
+        por distância ao “normal” quase não funciona (AUROC <span class="num">__SEP_RAW__</span>).</li>
+      <li><b>Depois (direita).</b> A cabeça siamesa <b>reorganiza o espaço</b>: as telas limpas se
+        <b>concentram numa região</b> (em torno do ★) e os erros (reais e sintéticos) se <b>afastam</b>. A
+        <b>★</b> é o <b>protótipo</b> — o centro do “normal”.</li>
+      <li><b>Como decidimos.</b> Medimos a <b>distância de cada tela ao ★</b>. Nesta geometria, essa
+        distância separa erro de não-erro com <b>AUROC <span class="num">__SEP_Z__</span></b>
+        (era __SEP_RAW__ no espaço cru). É a clusterização que torna a decisão <b>simples e explicável</b>
+        — sem olhar resolução nem dispositivo.</li>
+    </ol>
+    <p class="tips">Interaja ao vivo: <b>clique</b> numa classe da legenda para isolá-la ·
+       <b>arraste</b> para dar zoom · passe o <b>mouse</b> sobre um ponto para ver o arquivo,
+       a distância ao protótipo e o p(erro).<br>
+       <span style="opacity:.85">O mapa 2D é uma <b>projeção</b> (UMAP) só para visualização; a separação real é
+       a distância acima. O desempenho em <b>teste held-out</b> (no relatório) é AUROC 0.90.</span></p>
+  </div>
+</div>
+</body>
+</html>"""
+
+
+def _interactive_presentation(rep, raw2, z2, proto2, classe, split, names, sp, fused,
+                              sep_raw, sep_z):
+    """PRINCIPAL: antes x depois lado a lado, interativo, com roteiro do que falar.
+
+    Conta a historia da clusterizacao em uma figura: no espaco cru (ANTES) limpas e
+    erros estao misturados; no espaco z (DEPOIS) as limpas formam um cluster compacto,
+    os erros caem fora, e a estrela e o prototipo. A decisao e a distancia ao prototipo."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    LABEL = {"limpo": "Limpas (sem erro)", "erro_real": "Erros reais",
+             "erro_sintetico": "Erros sintéticos"}
+    order = ["limpo", "erro_real", "erro_sintetico"]
+    names = np.asarray(names)
+
+    fig = make_subplots(
+        rows=1, cols=2, horizontal_spacing=0.05,
+        subplot_titles=(
+            f"ANTES · DINOv2 cru (sem treino) — separa por distância: AUROC {sep_raw:.2f}",
+            f"DEPOIS · espaço z (siamesa) — AUROC {sep_z:.2f} · ★ = protótipo"))
+
+    for c in order:
+        mk = classe == c
+        # ANTES (col 1): hover simples (distancia/p(erro) nao se aplicam ao espaco cru)
+        fig.add_trace(go.Scatter(
+            x=raw2[mk, 0], y=raw2[mk, 1], mode="markers", name=LABEL[c],
+            legendgroup=c, showlegend=False,
+            marker=dict(size=6, color=COLORS[c], opacity=0.60, line=dict(width=0)),
+            customdata=np.stack([names[mk], split[mk]], axis=1),
+            hovertemplate="<b>%{customdata[0]}</b><br>" + LABEL[c]
+                          + " · %{customdata[1]}<extra></extra>"), row=1, col=1)
+        # DEPOIS (col 2): hover completo; a legenda aparece aqui (legendgroup sincroniza os dois lados)
+        fig.add_trace(go.Scatter(
+            x=z2[mk, 0], y=z2[mk, 1], mode="markers", name=LABEL[c],
+            legendgroup=c, showlegend=True,
+            marker=dict(size=6, color=COLORS[c], opacity=0.65, line=dict(width=0)),
+            customdata=np.stack([names[mk], split[mk], sp[mk].round(3), fused[mk].round(3)], axis=1),
+            hovertemplate="<b>%{customdata[0]}</b><br>" + LABEL[c]
+                          + " · %{customdata[1]}<br>distância ao protótipo=%{customdata[2]}"
+                            " · p(erro)=%{customdata[3]}<extra></extra>"), row=1, col=2)
+
+    fig.add_trace(go.Scatter(
+        x=proto2[:, 0], y=proto2[:, 1], mode="markers", name="★ Protótipo do limpo",
+        marker=dict(size=22, color="#111111", symbol="star",
+                    line=dict(width=1.6, color="white"))), row=1, col=2)
+    fig.add_annotation(x=proto2[0, 0], y=proto2[0, 1], xref="x2", yref="y2",
+                       text='centro do “normal”', showarrow=True, arrowhead=2,
+                       ax=40, ay=-40, arrowcolor="#111", font=dict(size=12, color="#111"),
+                       bgcolor="rgba(255,255,255,0.75)")
+
+    fig.update_layout(
+        height=600, hovermode="closest",
+        font=dict(family="Segoe UI, Helvetica, Arial, sans-serif", size=13),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.10, xanchor="center", x=0.5),
+        margin=dict(l=16, r=16, t=64, b=24),
+        plot_bgcolor="#FAFBFD", paper_bgcolor="white")
+    fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+    fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False)
+
+    plot = fig.to_html(full_html=False, include_plotlyjs=True,
+                       config={"displaylogo": False, "responsive": True})
+    page = (_PAGE_TEMPLATE.replace("__SEP_RAW__", f"{sep_raw:.2f}")
+                          .replace("__SEP_Z__", f"{sep_z:.2f}")
+                          .replace("__PLOT__", plot))
+    (rep / "clusters_apresentacao.html").write_text(page, encoding="utf-8")
 
 
 def _interactive_outcome(rep, z2, proto2, outcome, classe, split, names, sp, fused, thr, suffix=""):

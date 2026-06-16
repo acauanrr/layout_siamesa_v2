@@ -133,7 +133,7 @@ Opcionais — as evidências do relatório:
 ```bash
 python scripts/ablation.py --config configs/default.yaml          # prova: sintético quebra o confound
 python scripts/compare_preprocess.py                              # resize vs pad (padding cinza)
-python scripts/visualize.py --config configs/default.yaml --target-precisions 0.85,0.95
+python scripts/visualize.py --config configs/default.yaml --target-precisions 0.85,0.95  # → clusters_apresentacao.html (apresentar) + PNGs  [--extra-html: + HTML TP/TN/FP/FN]
 python scripts/dump_synthetic.py --config configs/default.yaml    # salva as imagens sintéticas
 ```
 
@@ -168,11 +168,12 @@ classificador (o `p(erro)` vem do modelo via `predict.py`). Ver `docs/DESIGN.md`
 
 | Arquivo | Mostra |
 |---|---|
+| ⭐ **`clusters_apresentacao.html`** | **APRESENTAR** — antes×depois interativo: a clusterização e o protótipo, com o **roteiro do que falar** embutido (separação por distância sobe de AUROC 0.58 → 0.94) |
 | `embedding_space.png` | DINOv2 cru (misturado) **vs** z aprendido (limpo vira cluster) + protótipo |
 | `decision_space.png` | distância ao protótipo (limpo perto de 0) + curva PR |
 | `outcome_space.png` | TEST por TP/TN/FP/FN — **onde o modelo erra** |
 | `tradeoff_outcome.png` | precisão×recall lado a lado (ex.: 0.85 vs 0.95) |
-| `embedding_interactive*.html` | scatter **interativo** (hover mostra o arquivo de cada ponto) |
+| `embedding_interactive*.html` | acerto/erro (TP/TN/FP/FN) por limiar — **opcional**, gere com `--extra-html` |
 
 ## Modos de operação e variantes
 

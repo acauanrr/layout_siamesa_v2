@@ -7,6 +7,7 @@
 > **rede siamesa** com o backbone **DINOv2 ViT-S/14**.
 
 📐 Diagrama do pipeline: bloco Mermaid embutido na §3-bis abaixo (renderiza no GitHub/GitLab/VS Code) · fonte em [`pipeline.mmd`](pipeline.mmd)
+🎯 Visualização para a reunião: `clusters_apresentacao.html` (gerado por `scripts/visualize.py`) — **antes×depois interativo**, com o roteiro do que falar (ver §6.8)
 🔬 Detalhes técnicos e decisões: [`DESIGN.md`](DESIGN.md)
 
 ---
@@ -63,6 +64,9 @@ Black region (faixas pretas) · Empty space (regiões vazias) · Disordered layo
 > Renderiza automaticamente no GitHub/GitLab/VS Code (extensão Mermaid). Fonte: [`pipeline.mmd`](pipeline.mmd).
 
 ```mermaid
+---
+title: "Pipeline · Detector de erros de layout em UI — rede siamesa sobre DINOv2 (congelado)"
+---
 %%{init: {
   "theme": "base",
   "themeVariables": {
@@ -71,83 +75,132 @@ Black region (faixas pretas) · Empty space (regiões vazias) · Disordered layo
     "lineColor": "#607D8B",
     "primaryTextColor": "#1A2027"
   },
-  "flowchart": { "curve": "basis", "nodeSpacing": 45, "rankSpacing": 55 }
+  "flowchart": { "curve": "basis", "nodeSpacing": 50, "rankSpacing": 55 }
 }}%%
 flowchart TB
+    %% =====================================================================
+    %% Fonte unica do diagrama do pipeline. Renderiza no GitHub / GitLab / VS Code
+    %% (extensao Mermaid). O bloco embutido em docs/RELATORIO_APRESENTACAO.md
+    %% (secao "3-bis") deve espelhar EXATAMENTE este arquivo.
+    %%
+    %% Linha GROSSA  ( ==> ) = caminho principal (o percurso de uma tela ate a decisao).
+    %% Linha fina    ( --> ) = ligacao de apoio.
+    %% Linha pontilhada (-.->) = entrada auxiliar / saida derivada (nao e o fluxo principal).
+    %% =====================================================================
 
-    subgraph S1["1 - Dados de entrada"]
+    %% ===================== 1. DADOS =====================
+    subgraph S1["1 · Dados de entrada"]
         direction TB
-        D1["no_erros<br/>172 telas LIMPAS<br/>2076x2152 (1 device)"]:::dados
-        D2["with_errors<br/>188 telas COM ERRO<br/>74 resolucoes, fotos, fold/laptop/tent"]:::dados
-        SPLIT["Split AGRUPADO por ticket IKSWW<br/>(0 vazamento, estratificado)<br/>train 252 | val 54 | test 54"]:::dados
+        D1["no_erros — 172 telas LIMPAS<br/>todas 2076×2152 (um único device)"]:::dados
+        D2["with_errors — 188 telas COM ERRO<br/>74 resoluções · fotos · fold/laptop/tent"]:::dados
+        SPLIT["Split AGRUPADO por ticket (IKSWW)<br/>0 vazamento · estratificado<br/>train 252 · val 54 · test 54"]:::dados
         D1 --> SPLIT
         D2 --> SPLIT
     end
 
-    subgraph S2["2 - Erros SINTETICOS (arma anti-confound)"]
+    %% ============ 2. SINTETICOS (ANTI-CONFOUND) ============
+    subgraph S2["2 · Erros sintéticos — a arma anti-confound"]
         direction TB
-        SYN["Injeta erro nas proprias telas LIMPAS<br/>black_region - empty_space - overlay<br/>disorder - cropped<br/>(MESMA resolucao do original)"]:::synth
+        WHY["⚠ Confound: toda tela LIMPA é 2076×2152 (1 device).<br/>Sem tratar, o modelo trapaceia detectando a RESOLUÇÃO (≈98%)."]:::warn
+        SYN["🧪 Injeta 5 tipos de erro nas próprias telas LIMPAS<br/>black region · empty space · overlay · disorder · cropped<br/>na MESMA resolução do original (par casado)"]:::synth
+        WHY -.-> SYN
     end
-    D1 -.->|"gera pares casados em confound"| SYN
 
-    subgraph S3["3 - Pre-processamento + Backbone CONGELADO"]
+    %% ============ 3. PRE-PROCESSAMENTO + BACKBONE ============
+    subgraph S3["3 · Pré-processamento + backbone congelado"]
         direction TB
-        PRE["Padding CINZA -> 518x518<br/>preserva aspecto - sem distorcer<br/>+ mascara de patch (ignora o cinza)"]:::preproc
-        BB["DINOv2 ViT-S/14 - CONGELADO<br/>22M params, 0 treinaveis<br/>grid 37x37 patches"]:::frozen
-        EMB["Embedding 1152-d<br/>CLS 384 + media 384 + desvio 384<br/>(dos patch tokens)"]:::preproc
-        CACHE[("Cache .npz<br/>(roda 1x)")]:::cache
-        PRE --> BB --> EMB --> CACHE
+        PRE["Padding CINZA → 518×518<br/>preserva o aspecto (sem distorcer)<br/>+ máscara de patch (ignora o cinza)"]:::preproc
+        BB["🔒 DINOv2 ViT-S/14 — CONGELADO<br/>22M params · 0 treináveis<br/>grade 37×37 patches"]:::frozen
+        EMB["Embedding 1152-d<br/>CLS 384 + média 384 + desvio 384<br/>(dos patch tokens)"]:::preproc
+        CACHE[("Cache .npz<br/>extrai 1× · reusa sempre")]:::cache
+        PRE ==> BB ==> EMB ==> CACHE
     end
-    SPLIT --> PRE
-    SYN --> PRE
 
-    subgraph S4["4 - Rede SIAMESA (unica parte treinavel ~330k params)"]
+    %% ============ 4. REDE SIAMESA (TREINAVEL) ============
+    subgraph S4["4 · Rede siamesa — única parte treinável (~330k params)"]
         direction TB
-        HEAD["Cabeca de projecao g( . ) COMPARTILHADA<br/>LayerNorm -> Linear 1152->256 -> GELU<br/>-> Linear 256->128 -> L2-normalize"]:::head
-        Z["z em R^128 na hiperesfera<br/>(espaco metrico aprendido)"]:::head
-        AUX["Cabeca auxiliar<br/>Linear 128->1<br/>(detector binario direto)"]:::head
-        LOSS["PERDA = SupCon(z) + 0.3 x BCE(aux)<br/>SupCon: aproxima MESMA classe,<br/>afasta classes diferentes"]:::loss
-        HEAD --> Z
+        HEAD["🎯 Cabeça de projeção g(·) COMPARTILHADA<br/>LayerNorm → Linear 1152→256 → GELU<br/>→ Linear 256→128 → L2-normaliza"]:::head
+        Z["z (128-d) na hiperesfera unitária<br/>espaço métrico aprendido"]:::head
+        AUX["Cabeça auxiliar<br/>Linear 128→1<br/>detector binário direto"]:::head
+        LOSS["PERDA (treino) = SupCon(z) + 0.3 · BCE(aux)<br/>SupCon aproxima a MESMA classe<br/>e afasta classes diferentes"]:::loss
+        HEAD ==> Z
         Z --> AUX
         Z --> LOSS
         AUX --> LOSS
     end
-    CACHE --> HEAD
 
-    subgraph S5["5 - Decisao por PROTOTIPO (clustering no espaco aprendido)"]
+    %% ============ 5. DECISAO (PROTOTIPO / CLUSTERING) ============
+    subgraph S5["5 · Decisão por protótipo — clustering no espaço aprendido"]
         direction TB
-        PROTO["Prototipo(s) do cluster LIMPO<br/>k-means sobre z das telas limpas"]:::decis
-        SCORE["score = 1 - cos(z, prototipo mais proximo)<br/>(longe do limpo => anomalia)"]:::decis
-        FUS["Fusao calibrada na validacao<br/>[score_prototipo, logit_aux] -> p(erro)"]:::decis
-        THR["Limiar por PRECISAO-ALVO<br/>fixado na validacao real (ex.: 0.95)"]:::decis
-        DEC{"erro?<br/>p(erro) acima do limiar"}:::decis
-        PROTO --> SCORE --> FUS --> THR --> DEC
+        PROTO["Protótipo(s) do cluster LIMPO<br/>k-means sobre z das telas limpas (treino)<br/>resume o que é normal"]:::decis
+        SCORE["score = 1 − cos(z, protótipo mais próximo)<br/>longe do limpo ⇒ anomalia"]:::decis
+        FUS["Fusão calibrada na validação<br/>(score do protótipo, logit auxiliar) → p(erro)"]:::decis
+        THR["Limiar de operação (escolhido na validação)<br/>balanceado por padrão · alta precisão opcional"]:::decis
+        DEC{"erro?<br/>p(erro) ≥ limiar"}:::decis
+        SCORE ==> FUS ==> THR ==> DEC
+        PROTO --> SCORE
     end
-    Z --> PROTO
-    Z --> SCORE
-    AUX --> FUS
 
-    subgraph S6["6 - Saidas e visualizacoes"]
+    %% ============ 6. SAIDAS / VISUALIZACOES ============
+    subgraph S6["6 · Saídas e visualizações"]
         direction TB
-        O1["predict.py<br/>p(erro) + decisao por imagem"]:::out
-        O2["localize.py<br/>heatmaps: PatchCore + geometrico<br/>(ONDE esta o erro)"]:::out
-        O3["visualize.py<br/>clusters, distancia, tradeoff,<br/>HTML interativo"]:::out
-        O4["evaluate.py<br/>AUROC/AP, baselines de confound,<br/>falseabilidade, IC bootstrap"]:::out
+        O1["predict.py · infer.py<br/>p(erro) + decisão por imagem"]:::out
+        O2["localize.py<br/>heatmaps PatchCore + geométrico<br/>(ONDE está o erro)"]:::out
+        O3["visualize.py<br/>clusters · distância · tradeoff<br/>+ HTML interativo"]:::out
+        O4["evaluate.py<br/>AUROC/AP · baselines de confound<br/>falseabilidade · IC bootstrap"]:::out
     end
-    DEC --> O1
-    BB -.->|"patch tokens"| O2
-    Z --> O3
+
+    %% ============ RESULTADO (o retorno do pipeline) ============
+    RES["<b>RESULTADO</b> — test held-out (54 imgs)<br/>acc 0.85 · prec 0.86 · rec 0.86 · F1 0.86<br/>AUROC 0.90 · AP 0.92<br/>sintético livre de confound: AUROC 0.88 · AP 0.97"]:::result
+
+    %% ===================== LIGACOES ENTRE ETAPAS =====================
+    D1 -.->|"gera pares idênticos em resolução"| SYN
+
+    SPLIT ==> PRE
+    SYN -->|"(somente no treino)"| PRE
+
+    CACHE ==> HEAD
+
+    Z ==>|"z da tela-alvo"| SCORE
+    Z -->|"z das telas limpas (treino)"| PROTO
+    AUX -.->|"logit auxiliar"| FUS
+
+    DEC ==> O1
     DEC --> O4
+    BB -.->|"patch tokens (atenção)"| O2
+    Z -.->|"z para visualizar"| O3
+    O4 --> RES
 
+    %% ===================== LEGENDA =====================
+    subgraph LEG["Legenda — o que cada cor significa"]
+        direction LR
+        LG1["🔒 Congelado<br/>(não treina)"]:::frozen
+        LG2["🎯 Treinável<br/>(única parte que aprende)"]:::head
+        LG3["🧪 Sintéticos<br/>(anti-confound)"]:::synth
+        LG4["Decisão<br/>(protótipo / clustering)"]:::decis
+        LG5["Saídas / scripts"]:::out
+        LG1 ~~~ LG2 ~~~ LG3 ~~~ LG4 ~~~ LG5
+    end
+
+    NOTE_PHASE["⏱ Treino (roda 1×): etapas 1–4 + ajuste da decisão na validação.<br/>🚀 Inferência (por imagem): pré-proc → DINOv2 → cabeça → score → p(erro) → decisão."]:::note
+
+    %% ancora a legenda e a nota abaixo do resultado (linhas invisiveis)
+    RES ~~~ NOTE_PHASE
+    NOTE_PHASE ~~~ LEG
+
+    %% ===================== ESTILOS =====================
     classDef dados   fill:#E3F2FD,stroke:#1565C0,stroke-width:1px,color:#0D47A1;
     classDef synth   fill:#FFF3E0,stroke:#E65100,stroke-width:2px,color:#BF360C;
     classDef preproc fill:#E0F2F1,stroke:#00695C,stroke-width:1px,color:#004D40;
-    classDef frozen  fill:#ECEFF1,stroke:#455A64,stroke-width:1px,color:#263238;
+    classDef frozen  fill:#ECEFF1,stroke:#455A64,stroke-width:1.5px,color:#263238;
     classDef cache   fill:#FAFAFA,stroke:#9E9E9E,stroke-width:1px,color:#424242;
-    classDef head    fill:#E8F5E9,stroke:#2E7D32,stroke-width:1px,color:#1B5E20;
+    classDef head    fill:#E8F5E9,stroke:#2E7D32,stroke-width:1.5px,color:#1B5E20;
     classDef loss    fill:#F1F8E9,stroke:#558B2F,stroke-width:2px,color:#33691E;
     classDef decis   fill:#F3E5F5,stroke:#6A1B9A,stroke-width:1px,color:#4A148C;
     classDef out     fill:#FFFDE7,stroke:#F9A825,stroke-width:1px,color:#F57F17;
+    classDef result  fill:#37474F,stroke:#263238,stroke-width:1px,color:#FFFFFF;
+    classDef note    fill:#FAFAFA,stroke:#90A4AE,stroke-width:1px,color:#37474F,stroke-dasharray:4 3;
+    classDef warn    fill:#FFF3E0,stroke:#E65100,stroke-width:1px,color:#BF360C,stroke-dasharray:4 3;
 
     style S1 fill:#F5FAFF,stroke:#90CAF9,color:#1565C0
     style S2 fill:#FFF8F0,stroke:#FFB74D,color:#E65100
@@ -155,6 +208,7 @@ flowchart TB
     style S4 fill:#F4FBF4,stroke:#A5D6A7,color:#2E7D32
     style S5 fill:#FBF4FD,stroke:#CE93D8,color:#6A1B9A
     style S6 fill:#FFFEF2,stroke:#FFE082,color:#F9A825
+    style LEG fill:#FFFFFF,stroke:#CFD8DC,color:#546E7A
 ```
 
 ---
@@ -218,7 +272,8 @@ legitimamente "diferentes" mesmo ambas corretas, gerando **falso-positivo estrut
    exatamente isto: a **mesma função `g`** aplicada a qualquer tela; comparar duas telas =
    comparar `z₁` e `z₂`.
 3. O espaço é treinado para que **telas limpas formem um cluster compacto** e **erros caiam
-   fora** (figura `embedding_space.png`).
+   fora** — veja `embedding_space.png` e, interativo, **`clusters_apresentacao.html`** (antes×depois):
+   separar erro por **distância ao protótipo** passa de **AUROC 0.58** (DINOv2 cru) para **0.94** no `z` aprendido.
 4. **Decisão (a ideia de clustering da equipe):** resumimos o cluster limpo em **protótipos**
    (k-means) e medimos a **distância** da tela-alvo ao protótipo mais próximo. Longe do
    limpo → erro. Isto é uma comparação **âncora (alvo) vs protótipos** — a versão correta da
@@ -264,8 +319,10 @@ L_supcon = - (1/|P(i)|) · Σ_{p∈P(i)} log( exp(z_i·z_p / τ) / Σ_{a≠i} ex
 4. **Avaliação honesta** — não vendemos a métrica global (que é ~98% confound). Reportamos
    sempre **baselines de confound**, subconjunto controlado, **teste sintético livre de
    confound**, e **testes de falseabilidade**.
-5. **Explicabilidade** — heatmaps mostram *onde* está o erro (PatchCore + detector
-   geométrico), e visualizações interativas mostram o modelo funcionando.
+5. **Explicabilidade** — a visualização interativa **antes×depois** (`clusters_apresentacao.html`)
+   mostra a clusterização funcionando — separar por **distância ao protótipo** sobe de **AUROC 0.58**
+   (DINOv2 cru) para **0.94** no `z` aprendido — e os heatmaps mostram *onde* está o erro
+   (PatchCore + detector geométrico).
 
 ---
 
@@ -375,12 +432,13 @@ junto — é o piso de recall imposto pelos **dados**, não pelo limiar.
 
 | Arquivo | O que mostra |
 |---|---|
+| ⭐ **`clusters_apresentacao.html`** | **principal para a reunião** — antes×depois interativo (clusterização + protótipo) com o **roteiro do que falar**; separação por distância sobe de **AUROC 0.58 → 0.94** |
 | `embedding_space.png` | DINOv2 cru (misturado) **vs** z aprendido (limpo vira cluster) |
 | `decision_space.png` | distância ao protótipo (limpo perto de 0) + curva PR |
 | `outcome_space.png` | TEST por TP/TN/FP/FN — **onde o modelo erra** |
 | `tradeoff_outcome.png` | comparação de limiares lado a lado |
-| `embedding_interactive*.html` | scatter **interativo** (hover mostra o arquivo) |
-| `heatmaps/` | onde está o erro em cada imagem (188 com erro × 2 métodos) |
+| `embedding_interactive*.html` | acerto/erro (TP/TN/FP/FN) por limiar — **opcional** (`--extra-html`) |
+| `heatmaps/` | onde está o erro em cada imagem (188 × 2 métodos) — **gerados sob demanda** por `localize.py` |
 | `synthetic_preview.png` | exemplos dos 5 erros sintéticos |
 
 ---
