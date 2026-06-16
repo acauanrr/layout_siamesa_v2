@@ -1,0 +1,68 @@
+# ============================================================
+#  Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+build/
+dist/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ============================================================
+#  Dados de entrada (NAO versionar — screenshots de apps: privacidade/IP)
+# ============================================================
+data/input/
+# manifests CSV com caminhos absolutos locais; regeneraveis
+data/splits/
+
+# ============================================================
+#  Artefatos PESADOS / regeneraveis (rodar os scripts os recria)
+# ============================================================
+# caches .npz dos embeddings DINOv2 (~5 MB)
+artifacts/embeddings/
+# pesos da cabeca + decision.npz + banco PatchCore (~1 MB)
+artifacts/models/
+# 480 imagens corrompidas + pares (~330 MB; screenshots reais)
+artifacts/synthetic_images/
+# 376 overlays (~106 MB; screenshots reais)
+artifacts/reports/heatmaps/
+# scatter interativos (~5 MB cada)
+artifacts/reports/*.html
+# relatorios de avaliacao (regeneraveis)
+artifacts/reports/*.json
+# contem screenshots reais
+artifacts/reports/synthetic_preview.png
+
+# NOTA: as FIGURAS DE ANALISE (sem conteudo de app) em artifacts/reports/*.png
+# (confusion_matrix, embedding_space, decision_space, outcome_space,
+#  tradeoff_outcome, evaluation_plots) SAO versionadas de proposito: o README e o
+#  relatorio as exibem (renderizam no GitHub). Total ~0.5 MB.
+
+# ============================================================
+#  Pesos de modelo / checkpoints em qualquer lugar
+# ============================================================
+.cache/
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# ============================================================
+#  Sistema operacional / editores
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
