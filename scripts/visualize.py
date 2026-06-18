@@ -41,6 +41,14 @@ OUTCOME_COLORS = {
     "FN_erro_perdido": "#d62728",   # erro NAO detectado (vermelho)
 }
 SYMBOL = {"train": "circle", "test": "diamond"}
+# rotulos exibidos (EN) — as CHAVES acima permanecem internas (indexam cores/logica)
+CLASS_LABEL = {"limpo": "Clean", "erro_real": "Real error", "erro_sintetico": "Synthetic error"}
+OUTCOME_LABEL = {
+    "TP_acerto_erro": "TP · error detected",
+    "TN_acerto_limpo": "TN · clean correct",
+    "FP_falso_alarme": "FP · false alarm",
+    "FN_erro_perdido": "FN · missed error",
+}
 
 
 def _outcome(fused: np.ndarray, true: np.ndarray, thr: float) -> np.ndarray:
@@ -205,14 +213,14 @@ def _static_embedding(rep, raw2, z2, proto2, classe):
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(1, 2, figsize=(15, 6.5))
-    for title, xy, a in [("DINOv2 cru (ANTES) — limpo e erro misturados", raw2, ax[0]),
-                         ("z aprendido pela siamesa (DEPOIS) — limpo vira cluster", z2, ax[1])]:
+    for title, xy, a in [("Raw DINOv2 (BEFORE) — clean and errors mixed", raw2, ax[0]),
+                         ("z learned by the siamese head (AFTER) — clean forms a cluster", z2, ax[1])]:
         for c in ["erro_sintetico", "erro_real", "limpo"]:
             mk = classe == c
-            a.scatter(xy[mk, 0], xy[mk, 1], s=14, alpha=0.6, c=COLORS[c], label=c, edgecolors="none")
+            a.scatter(xy[mk, 0], xy[mk, 1], s=14, alpha=0.6, c=COLORS[c], label=CLASS_LABEL[c], edgecolors="none")
         a.set_title(title); a.set_xticks([]); a.set_yticks([]); a.legend(loc="best", fontsize=8)
     ax[1].scatter(proto2[:, 0], proto2[:, 1], s=400, marker="*", c=COLORS["prototipo"],
-                  edgecolors="white", linewidths=1.5, label="prototipo limpo", zorder=5)
+                  edgecolors="white", linewidths=1.5, label="clean prototype", zorder=5)
     ax[1].legend(loc="best", fontsize=8)
     fig.tight_layout(); fig.savefig(rep / "embedding_space.png", dpi=120); plt.close(fig)
 
@@ -222,13 +230,13 @@ def _static_decision(rep, sp, classe, thr, te, z_te, dec, fus, aux_te):
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(1, 2, figsize=(14, 5))
     for c in ["limpo", "erro_real", "erro_sintetico"]:
-        ax[0].hist(sp[classe == c], bins=30, alpha=0.55, color=COLORS[c], label=c)
-    ax[0].set_title("Distancia ao prototipo LIMPO (regra de decisao)")
-    ax[0].set_xlabel("score = 1 - cos(z, prototipo)"); ax[0].legend(fontsize=8)
+        ax[0].hist(sp[classe == c], bins=30, alpha=0.55, color=COLORS[c], label=CLASS_LABEL[c])
+    ax[0].set_title("Distance to the CLEAN prototype (decision rule)")
+    ax[0].set_xlabel("score = 1 − cos(z, prototype)"); ax[0].legend(fontsize=8)
     # curva PR no test (fusao)
     fused_te = fus.predict_proba(np.stack([dec.scores(z_te), aux_te], 1))[:, 1]
     p, r, _ = precision_recall_curve(te["label"], fused_te)
-    ax[1].plot(r, p); ax[1].set_title("Precision-Recall (TEST real, fusao)")
+    ax[1].plot(r, p); ax[1].set_title("Precision–Recall (real TEST, fusion)")
     ax[1].set_xlabel("recall"); ax[1].set_ylabel("precision"); ax[1].set_ylim(0, 1.02)
     fig.tight_layout(); fig.savefig(rep / "decision_space.png", dpi=120); plt.close(fig)
 
@@ -241,15 +249,15 @@ def _interactive(rep, z2, proto2, classe, split, names, sp, fused, thr):
         custom = np.stack([np.array(names)[mk], split[mk], sp[mk].round(3),
                            fused[mk].round(3)], axis=1)
         fig.add_trace(go.Scatter(
-            x=z2[mk, 0], y=z2[mk, 1], mode="markers", name=c,
+            x=z2[mk, 0], y=z2[mk, 1], mode="markers", name=CLASS_LABEL[c],
             marker=dict(size=7, color=COLORS[c], opacity=0.7, line=dict(width=0)),
             customdata=custom,
             hovertemplate="<b>%{customdata[0]}</b><br>split=%{customdata[1]}<br>"
-                          "dist_prototipo=%{customdata[2]}<br>p(erro)=%{customdata[3]}<extra>" + c + "</extra>"))
+                          "dist_to_prototype=%{customdata[2]}<br>p(error)=%{customdata[3]}<extra>" + CLASS_LABEL[c] + "</extra>"))
     fig.add_trace(go.Scatter(x=proto2[:, 0], y=proto2[:, 1], mode="markers",
-                             name="prototipo limpo", marker=dict(size=20, color="black", symbol="star")))
-    fig.update_layout(title=f"Espaco aprendido z (UMAP) — limiar p(erro)={thr:.3f} | "
-                            "limpo=verde, erro real=vermelho, sintetico=laranja",
+                             name="clean prototype", marker=dict(size=20, color="black", symbol="star")))
+    fig.update_layout(title=f"Learned z-space (UMAP) — threshold p(error)={thr:.3f} | "
+                            "clean=green, real error=red, synthetic=orange",
                       width=1100, height=750, hovermode="closest")
     fig.write_html(rep / "embedding_interactive.html")
 
@@ -259,7 +267,7 @@ _PAGE_TEMPLATE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Clusters — antes × depois (apresentação)</title>
+<title>Clusters — before × after (presentation)</title>
 <style>
   :root { --ink:#1A2027; --muted:#5b6b78; --line:#e3e8ee;
           --clean:#2ca02c; --real:#d62728; --synth:#ff7f0e; }
@@ -293,33 +301,33 @@ _PAGE_TEMPLATE = """<!doctype html>
 <body>
 <div class="wrap">
   <header>
-    <h1>Espaço de embeddings — antes × depois do treino</h1>
-    <p class="lead">A rede siamesa aprende um espaço onde as <b>telas limpas se agrupam</b> (perto do ★)
-       e os <b>erros se afastam</b>. A decisão é simplesmente a <b>distância ao ★ (protótipo do limpo)</b>:
-       perto ⇒ limpo, longe ⇒ erro.</p>
+    <h1>Embedding space — before × after training</h1>
+    <p class="lead">The siamese head learns a space where <b>clean screens cluster together</b> (near the ★)
+       and <b>errors move away</b>. The decision is simply the <b>distance to the ★ (clean prototype)</b>:
+       near ⇒ clean, far ⇒ error.</p>
   </header>
 
   <div class="card plot">__PLOT__</div>
 
   <div class="card guia">
-    <h2>O que dizer na apresentação</h2>
+    <h2>What to say in the presentation</h2>
     <ol class="fala">
-      <li><b>Antes (esquerda).</b> No DINOv2 puro, <span class="chip" style="background:var(--clean)">limpas</span>
-        e <span class="chip" style="background:var(--real)">erros</span> ficam <b>misturados</b> — separar
-        por distância ao “normal” quase não funciona (AUROC <span class="num">__SEP_RAW__</span>).</li>
-      <li><b>Depois (direita).</b> A cabeça siamesa <b>reorganiza o espaço</b>: as telas limpas se
-        <b>concentram numa região</b> (em torno do ★) e os erros (reais e sintéticos) se <b>afastam</b>. A
-        <b>★</b> é o <b>protótipo</b> — o centro do “normal”.</li>
-      <li><b>Como decidimos.</b> Medimos a <b>distância de cada tela ao ★</b>. Nesta geometria, essa
-        distância separa erro de não-erro com <b>AUROC <span class="num">__SEP_Z__</span></b>
-        (era __SEP_RAW__ no espaço cru). É a clusterização que torna a decisão <b>simples e explicável</b>
-        — sem olhar resolução nem dispositivo.</li>
+      <li><b>Before (left).</b> In raw DINOv2, <span class="chip" style="background:var(--clean)">clean</span>
+        and <span class="chip" style="background:var(--real)">errors</span> are <b>mixed</b> — separating
+        by distance to "normal" barely works (AUROC <span class="num">__SEP_RAW__</span>).</li>
+      <li><b>After (right).</b> The siamese head <b>reshapes the space</b>: clean screens
+        <b>concentrate in one region</b> (around the ★) and errors (real and synthetic) <b>move away</b>. The
+        <b>★</b> is the <b>prototype</b> — the center of "normal".</li>
+      <li><b>How we decide.</b> We measure <b>each screen's distance to the ★</b>. In this geometry, that
+        distance separates error from non-error with <b>AUROC <span class="num">__SEP_Z__</span></b>
+        (it was __SEP_RAW__ in the raw space). It is the clustering that makes the decision <b>simple and explainable</b>
+        — without looking at resolution or device.</li>
     </ol>
-    <p class="tips">Interaja ao vivo: <b>clique</b> numa classe da legenda para isolá-la ·
-       <b>arraste</b> para dar zoom · passe o <b>mouse</b> sobre um ponto para ver o arquivo,
-       a distância ao protótipo e o p(erro).<br>
-       <span style="opacity:.85">O mapa 2D é uma <b>projeção</b> (UMAP) só para visualização; a separação real é
-       a distância acima. O desempenho em <b>teste held-out</b> (no relatório) é AUROC 0.90.</span></p>
+    <p class="tips">Interact live: <b>click</b> a class in the legend to isolate it ·
+       <b>drag</b> to zoom · <b>hover</b> a point to see the file,
+       its distance to the prototype and p(error).<br>
+       <span style="opacity:.85">The 2D map is a <b>projection</b> (UMAP) for visualization only; the real separation is
+       the distance above. Held-out <b>test</b> performance (in the report) is AUROC 0.90.</span></p>
   </div>
 </div>
 </body>
@@ -336,16 +344,16 @@ def _interactive_presentation(rep, raw2, z2, proto2, classe, split, names, sp, f
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
-    LABEL = {"limpo": "Limpas (sem erro)", "erro_real": "Erros reais",
-             "erro_sintetico": "Erros sintéticos"}
+    LABEL = {"limpo": "Clean (no error)", "erro_real": "Real errors",
+             "erro_sintetico": "Synthetic errors"}
     order = ["limpo", "erro_real", "erro_sintetico"]
     names = np.asarray(names)
 
     fig = make_subplots(
         rows=1, cols=2, horizontal_spacing=0.05,
         subplot_titles=(
-            f"ANTES · DINOv2 cru (sem treino) — separa por distância: AUROC {sep_raw:.2f}",
-            f"DEPOIS · espaço z (siamesa) — AUROC {sep_z:.2f} · ★ = protótipo"))
+            f"BEFORE · raw DINOv2 (untrained) — separates by distance: AUROC {sep_raw:.2f}",
+            f"AFTER · z-space (siamese) — AUROC {sep_z:.2f} · ★ = prototype"))
 
     for c in order:
         mk = classe == c
@@ -357,22 +365,22 @@ def _interactive_presentation(rep, raw2, z2, proto2, classe, split, names, sp, f
             customdata=np.stack([names[mk], split[mk]], axis=1),
             hovertemplate="<b>%{customdata[0]}</b><br>" + LABEL[c]
                           + " · %{customdata[1]}<extra></extra>"), row=1, col=1)
-        # DEPOIS (col 2): hover completo; a legenda aparece aqui (legendgroup sincroniza os dois lados)
+        # AFTER (col 2): hover completo; a legenda aparece aqui (legendgroup sincroniza os dois lados)
         fig.add_trace(go.Scatter(
             x=z2[mk, 0], y=z2[mk, 1], mode="markers", name=LABEL[c],
             legendgroup=c, showlegend=True,
             marker=dict(size=6, color=COLORS[c], opacity=0.65, line=dict(width=0)),
             customdata=np.stack([names[mk], split[mk], sp[mk].round(3), fused[mk].round(3)], axis=1),
             hovertemplate="<b>%{customdata[0]}</b><br>" + LABEL[c]
-                          + " · %{customdata[1]}<br>distância ao protótipo=%{customdata[2]}"
-                            " · p(erro)=%{customdata[3]}<extra></extra>"), row=1, col=2)
+                          + " · %{customdata[1]}<br>distance to prototype=%{customdata[2]}"
+                            " · p(error)=%{customdata[3]}<extra></extra>"), row=1, col=2)
 
     fig.add_trace(go.Scatter(
-        x=proto2[:, 0], y=proto2[:, 1], mode="markers", name="★ Protótipo do limpo",
+        x=proto2[:, 0], y=proto2[:, 1], mode="markers", name="★ Clean prototype",
         marker=dict(size=22, color="#111111", symbol="star",
                     line=dict(width=1.6, color="white"))), row=1, col=2)
     fig.add_annotation(x=proto2[0, 0], y=proto2[0, 1], xref="x2", yref="y2",
-                       text='centro do “normal”', showarrow=True, arrowhead=2,
+                       text='center of "normal"', showarrow=True, arrowhead=2,
                        ax=40, ay=-40, arrowcolor="#111", font=dict(size=12, color="#111"),
                        bgcolor="rgba(255,255,255,0.75)")
 
@@ -406,19 +414,19 @@ def _interactive_outcome(rep, z2, proto2, outcome, classe, split, names, sp, fus
             custom = np.stack([np.array(names)[mk], classe[mk], sp[mk].round(3),
                                fused[mk].round(3)], axis=1)
             fig.add_trace(go.Scatter(
-                x=z2[mk, 0], y=z2[mk, 1], mode="markers", name=f"{oc} | {s}",
+                x=z2[mk, 0], y=z2[mk, 1], mode="markers", name=f"{OUTCOME_LABEL[oc]} | {s}",
                 marker=dict(size=11 if s == "test" else 6, color=OUTCOME_COLORS[oc],
                             symbol=SYMBOL[s], opacity=0.85 if s == "test" else 0.45,
                             line=dict(width=1 if s == "test" else 0, color="black")),
                 customdata=custom,
-                hovertemplate="<b>%{customdata[0]}</b><br>classe=%{customdata[1]}<br>"
-                              "dist_prototipo=%{customdata[2]}<br>p(erro)=%{customdata[3]}"
-                              f"<extra>{oc} | {s}</extra>"))
+                hovertemplate="<b>%{customdata[0]}</b><br>class=%{customdata[1]}<br>"
+                              "dist_to_prototype=%{customdata[2]}<br>p(error)=%{customdata[3]}"
+                              f"<extra>{OUTCOME_LABEL[oc]} | {s}</extra>"))
     fig.add_trace(go.Scatter(x=proto2[:, 0], y=proto2[:, 1], mode="markers",
-                             name="prototipo limpo", marker=dict(size=20, color="black", symbol="star")))
+                             name="clean prototype", marker=dict(size=20, color="black", symbol="star")))
     fig.update_layout(
-        title=f"ACERTO/ERRO do modelo (limiar p(erro)={thr:.3f}) — circulo=train (in-sample), "
-              "losango=test (held-out). Verde/azul=acerto, laranja=falso-alarme, vermelho=erro perdido",
+        title=f"Model outcome (threshold p(error)={thr:.3f}) — circle=train (in-sample), "
+              "diamond=test (held-out). Green/blue=correct, orange=false alarm, red=missed error",
         width=1150, height=780, hovermode="closest")
     fig.write_html(rep / f"embedding_interactive_outcome{suffix}.html")
 
@@ -429,15 +437,15 @@ def _static_outcome(rep, z2, proto2, outcome, split):
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(8.5, 7))
     tr = split == "train"; teM = split == "test"
-    ax.scatter(z2[tr, 0], z2[tr, 1], s=8, c="#dddddd", label="train (fundo)", edgecolors="none")
+    ax.scatter(z2[tr, 0], z2[tr, 1], s=8, c="#dddddd", label="train (background)", edgecolors="none")
     for oc in ["TN_acerto_limpo", "TP_acerto_erro", "FP_falso_alarme", "FN_erro_perdido"]:
         mk = teM & (outcome == oc)
         if mk.sum():
             ax.scatter(z2[mk, 0], z2[mk, 1], s=70, c=OUTCOME_COLORS[oc], marker="D",
-                       edgecolors="black", linewidths=0.6, label=f"{oc} ({int(mk.sum())})")
+                       edgecolors="black", linewidths=0.6, label=f"{OUTCOME_LABEL[oc]} ({int(mk.sum())})")
     ax.scatter(proto2[:, 0], proto2[:, 1], s=400, marker="*", c="black",
-               edgecolors="white", linewidths=1.5, label="prototipo", zorder=5)
-    ax.set_title("TEST (held-out) por acerto/erro do modelo — onde estao FP e FN")
+               edgecolors="white", linewidths=1.5, label="prototype", zorder=5)
+    ax.set_title("Held-out TEST by model outcome — where FP and FN are")
     ax.set_xticks([]); ax.set_yticks([]); ax.legend(loc="best", fontsize=8)
     fig.tight_layout(); fig.savefig(rep / "outcome_space.png", dpi=120); plt.close(fig)
 
@@ -462,14 +470,14 @@ def _tradeoff_static(rep, z2, proto2, split, true, fused, thr_by_p):
             mk = teM & (oc == o)
             if mk.sum():
                 ax.scatter(z2[mk, 0], z2[mk, 1], s=70, c=OUTCOME_COLORS[o], marker="D",
-                           edgecolors="black", linewidths=0.6, label=f"{o} ({int(mk.sum())})")
+                           edgecolors="black", linewidths=0.6, label=f"{OUTCOME_LABEL[o]} ({int(mk.sum())})")
         ax.scatter(proto2[:, 0], proto2[:, 1], s=350, marker="*", c="black",
                    edgecolors="white", linewidths=1.5, zorder=5)
-        ax.set_title(f"precisao-alvo {p:.2f}  (thr={thr:.3f})\n"
-                     f"TEST: precisao={prec:.2f}  recall={rec:.2f}  | TP={tp} FP={fp} FN={fn}")
+        ax.set_title(f"target precision {p:.2f}  (thr={thr:.3f})\n"
+                     f"TEST: precision={prec:.2f}  recall={rec:.2f}  | TP={tp} FP={fp} FN={fn}")
         ax.set_xticks([]); ax.set_yticks([]); ax.legend(loc="best", fontsize=8)
-    fig.suptitle("Tradeoff precisao×recall — mesmo espaco z, limiares diferentes "
-                 "(losango=test held-out, ★=prototipo)", fontsize=12)
+    fig.suptitle("Precision×recall tradeoff — same z-space, different thresholds "
+                 "(diamond=held-out test, ★=prototype)", fontsize=12)
     fig.tight_layout(); fig.savefig(rep / "tradeoff_outcome.png", dpi=120); plt.close(fig)
 
 
