@@ -17,6 +17,7 @@ from __future__ import annotations
 import csv
 import re
 from dataclasses import dataclass, asdict
+from datetime import datetime
 from pathlib import Path
 
 # Rotulos binarios (mantidos p/ o gate limpo-vs-erro e p/ a esteira binaria legada)
@@ -40,12 +41,33 @@ CLEAN_CATEGORY = "clean"
 CATEGORIES = [CLEAN_CATEGORY] + sorted(ERROR_DIR_TO_SLUG.values())
 CATEGORY_TO_ID = {c: i for i, c in enumerate(CATEGORIES)}
 ID_TO_CATEGORY = {i: c for c, i in CATEGORY_TO_ID.items()}
+CLEAN_ID = CATEGORY_TO_ID[CLEAN_CATEGORY]   # 0
+ABSTAIN_ID = -1                              # sentinela de abstencao (categoria fora do escopo)
+
+
+def category_id(cat: str, *, strict: bool = True) -> int:
+    """Mapa CANONICO categoria->id (Fase 6, 'tratamento de escopo'). 'clean'/'' -> 0; slug de
+    erro conhecido -> seu id. Categoria de ERRO DESCONHECIDA: strict=True (padrao) levanta
+    KeyError; strict=False devolve ABSTAIN_ID (-1). NUNCA rotula desconhecido como 'clean'
+    silenciosamente (era o bug de `CATEGORY_TO_ID.get(c, 0)`)."""
+    c = (cat or "").strip().lower()
+    if c in ("", CLEAN_CATEGORY):
+        return CLEAN_ID
+    if c in CATEGORY_TO_ID:
+        return CATEGORY_TO_ID[c]
+    if strict:
+        raise KeyError(
+            f"categoria fora do escopo: {cat!r} (conhecidas: {list(CATEGORY_TO_ID)}). "
+            "Mapeie-a, funda-a, ou trate como abstencao — nunca rotule como 'clean'.")
+    return ABSTAIN_ID
 
 # Regex de metadados (case-insensitive)
 _RE_TICKET = re.compile(r"(IKSWW[-_]\d+)", re.IGNORECASE)
 _RE_FORMFACTOR = re.compile(r"(unfold|fold|laptop|tent|desktop|unidentif\w*)", re.IGNORECASE)
 _RE_ORIENT = re.compile(r"(portrait|portrair|landscape)", re.IGNORECASE)  # 'portrair' = typo no dataset
 _RE_KIND = re.compile(r"(screenshot|screeshot|photo)", re.IGNORECASE)     # 'screeshot' = typo no dataset
+# Timestamp de captura embutido no nome (Screenshot_YYYYMMDD_HHMMSS.png) -> identifica SESSAO.
+_RE_SHOT_TS = re.compile(r"(\d{8})[_-](\d{6})")
 
 
 @dataclass
@@ -101,6 +123,112 @@ def _group_key(path: Path, source: str) -> str:
         # normaliza IKSWW_123 e IKSWW-123 para a mesma chave
         return m.group(1).upper().replace("_", "-")
     return f"{source}:{path.stem}"
+
+
+def _shot_time(name: str) -> datetime | None:
+    """Extrai o datetime de captura de um Screenshot_YYYYMMDD_HHMMSS; None se nao houver."""
+    m = _RE_SHOT_TS.search(name)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S")
+    except ValueError:
+        return None
+
+
+def _hamming(a: int, b: int) -> int:
+    return bin(a ^ b).count("1")
+
+
+def clean_session_components(
+    names: list[str],
+    *,
+    gap_seconds: int = 300,
+    phash_of=None,
+    phash_max_dist: int = 6,
+) -> dict[str, str]:
+    """Agrupa nomes de telas LIMPAS em COMPONENTES CONEXOS de captura, via union-find sobre
+    duas relacoes (problema #3 da auditoria — telas limpas sao quase-duplicatas da mesma
+    sessao/dispositivo e NAO podem cruzar splits):
+
+      (1) SESSAO temporal: capturas com timestamps consecutivos a <= `gap_seconds` caem na
+          mesma sessao (transitivo). Sequencias `Screenshot_YYYYMMDD_HHMMSS` tiradas segundos
+          a segundos sao o nucleo do vazamento.
+      (2) NEAR-DUPLICATE perceptual (opcional): se `phash_of(name)->int` for dado, qualquer
+          par com distancia de Hamming <= `phash_max_dist` e' unido — pega duplicatas mesmo
+          em sessoes/dias diferentes.
+
+    Retorna {name: group_id}, com ids estaveis `no_erros:sessNNN` ordenados pelo menor nome
+    do componente (deterministico, independente da ordem de entrada)."""
+    parent = {n: n for n in names}
+
+    def find(x: str) -> str:
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:        # path compression
+            parent[x], x = root, parent[x]
+        return root
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    # (1) sessao temporal: ordena por tempo e une vizinhos dentro do gap
+    timed = sorted(((t, n) for n in names if (t := _shot_time(n)) is not None),
+                   key=lambda x: (x[0], x[1]))
+    for (ta, na), (tb, nb) in zip(timed, timed[1:]):
+        if (tb - ta).total_seconds() <= gap_seconds:
+            union(na, nb)
+
+    # (2) near-duplicate perceptual (O(n^2); n~100s de limpas -> trivial)
+    if phash_of is not None:
+        hh = [(n, phash_of(n)) for n in names]
+        for i in range(len(hh)):
+            ni, hi = hh[i]
+            if hi is None:
+                continue
+            for j in range(i + 1, len(hh)):
+                nj, hj = hh[j]
+                if hj is not None and _hamming(hi, hj) <= phash_max_dist:
+                    union(ni, nj)
+
+    comps: dict[str, list[str]] = {}
+    for n in names:
+        comps.setdefault(find(n), []).append(n)
+    ordered = sorted(comps.values(), key=lambda g: min(g))
+    out: dict[str, str] = {}
+    for k, members in enumerate(ordered):
+        gid = f"no_erros:sess{k:03d}"
+        for n in members:
+            out[n] = gid
+    return out
+
+
+def assign_clean_session_groups(
+    samples: list["Sample"],
+    *,
+    gap_seconds: int = 300,
+    phash_of=None,
+    phash_max_dist: int = 6,
+) -> list["Sample"]:
+    """Reescreve `group` das amostras LIMPAS (source 'no_erros') para o componente de sessao
+    (ver clean_session_components). Idempotente; nao toca amostras de erro (agrupadas por
+    ticket). Chamado por build_splits ANTES do split para impedir vazamento de quase-duplicatas."""
+    clean = [s for s in samples if s.source == "no_erros"]
+    if not clean:
+        return samples
+    by_name = {}
+    for s in clean:
+        by_name.setdefault(Path(s.path).name, []).append(s)
+    groups = clean_session_components(
+        list(by_name.keys()), gap_seconds=gap_seconds,
+        phash_of=phash_of, phash_max_dist=phash_max_dist)
+    for name, members in by_name.items():
+        for s in members:
+            s.group = groups[name]
+    return samples
 
 
 _EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
@@ -206,26 +334,23 @@ def grouped_stratified_split(
     for gid, members in groups.items():
         by_strat.setdefault(strat_key(members), {})[gid] = members
 
-    # 3. aloca cada estrato a test/val/train
+    # 3. aloca cada estrato a train/val/test de forma BALANCEADA (deficit-fill). Aloca os
+    #    grupos do MAIOR para o menor, cada um ao split mais DEFICITARIO (target - ja_alocado).
+    #    Isso mantem as fracoes mesmo com POUCOS grupos grandes (ex.: 15 sessoes limpas) —
+    #    o greedy antigo "enche test, depois val, depois train" deixava o train sem limpas.
+    train_frac = max(0.0, 1.0 - val_frac - test_frac)
     for _strat in sorted(by_strat, key=str):
         gmap = by_strat[_strat]
         group_ids = sorted(gmap.keys())  # estabilidade
-        rng.shuffle(group_ids)
+        rng.shuffle(group_ids)           # desempate determinístico (seed)
         total = sum(len(gmap[g]) for g in group_ids)
-        n_test_target = round(total * test_frac)
-        n_val_target = round(total * val_frac)
-
-        n_test = n_val = 0
-        for g in group_ids:
+        targets = {"train": total * train_frac, "val": total * val_frac, "test": total * test_frac}
+        filled = {"train": 0.0, "val": 0.0, "test": 0.0}
+        # ordem: maior grupo primeiro; estavel sobre a ordem ja embaralhada (desempata size)
+        for g in sorted(group_ids, key=lambda g: -len(gmap[g])):
             sz = len(gmap[g])
-            if n_test < n_test_target:
-                split = "test"
-                n_test += sz
-            elif n_val < n_val_target:
-                split = "val"
-                n_val += sz
-            else:
-                split = "train"
+            split = max(("train", "val", "test"), key=lambda s: targets[s] - filled[s])
+            filled[split] += sz
             for s in gmap[g]:
                 s.split = split
     return samples

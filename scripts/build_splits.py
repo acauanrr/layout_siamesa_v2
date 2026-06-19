@@ -16,10 +16,13 @@ from pathlib import Path
 
 from PIL import Image
 
+import numpy as np
+
 from siamese.manifest import (
     scan_dataset,
     grouped_stratified_split,
     write_manifests,
+    assign_clean_session_groups,
 )
 
 
@@ -29,6 +32,22 @@ def _resolution(path: str) -> tuple[int, int]:
             return im.size  # (w, h)
     except Exception:
         return (-1, -1)
+
+
+def _dhash(path: str, hash_size: int = 8) -> int | None:
+    """Difference-hash perceptual (64 bits) para detectar quase-duplicatas de tela. Robusto a
+    escala/brilho; layouts distintos dao Hamming alto (nao sao unidos). None se falhar."""
+    try:
+        with Image.open(path) as im:
+            g = im.convert("L").resize((hash_size + 1, hash_size), Image.BILINEAR)
+        a = np.asarray(g, dtype=np.int16)
+        diff = a[:, 1:] > a[:, :-1]
+        bits = 0
+        for v in diff.flatten():
+            bits = (bits << 1) | int(v)
+        return bits
+    except Exception:
+        return None
 
 
 def main() -> None:
@@ -41,10 +60,35 @@ def main() -> None:
     ap.add_argument("--val-frac", type=float, default=0.15)
     ap.add_argument("--test-frac", type=float, default=0.24)   # teste >= 40 limpas
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--session-gap", type=int, default=300,
+                    help="seg. de gap que separam SESSOES de captura das telas limpas (#3)")
+    ap.add_argument("--phash-dist", type=int, default=4,
+                    help="distancia de Hamming (dHash 64b) p/ unir quase-duplicatas de tela. "
+                         "<=4 une so near-dups reais; >=8 colapsa telas do mesmo app (evitar).")
+    ap.add_argument("--no-phash", action="store_true",
+                    help="desliga a uniao por near-duplicate perceptual (so sessao temporal)")
     args = ap.parse_args()
 
     samples = scan_dataset(args.input, source=args.source)
     print(f"Fonte de erros: {args.source}")
+
+    # #3 anti-vazamento: telas LIMPAS sao quase-duplicatas da mesma sessao/dispositivo. Reagrupa
+    # por SESSAO (timestamp) + NEAR-DUPLICATE (dHash) ANTES do split, para que nenhuma cruze
+    # train/val/test. Sem isto, cada screenshot vira um "grupo" unitario e sequencias tiradas
+    # segundos a segundos vazam entre splits (similaridade DINO ~0.99).
+    clean_paths = {Path(s.path).name: s.path for s in samples if s.source == "no_erros"}
+    n_clean_files = len(clean_paths)
+    phash_of = None
+    if not args.no_phash:
+        _cache = {nm: _dhash(pth) for nm, pth in clean_paths.items()}
+        phash_of = lambda name: _cache.get(name)
+    samples = assign_clean_session_groups(
+        samples, gap_seconds=args.session_gap, phash_of=phash_of, phash_max_dist=args.phash_dist)
+    n_clean_groups = len({s.group for s in samples if s.source == "no_erros"})
+    print(f"Telas limpas: {n_clean_files} arquivos -> {n_clean_groups} GRUPOS de sessao/near-dup "
+          f"(gap={args.session_gap}s, phash{'=off' if args.no_phash else f'<= {args.phash_dist}'}). "
+          f"[antes: {n_clean_files} grupos unitarios = vazamento]")
+
     samples = grouped_stratified_split(
         samples, val_frac=args.val_frac, test_frac=args.test_frac, seed=args.seed
     )
@@ -53,7 +97,7 @@ def main() -> None:
     n = len(samples)
     n_err = sum(s.label == 1 for s in samples)
     print(f"\n=== DATASET: {n} imagens | erro={n_err} ({n_err/n:.0%}) | sem-erro={n-n_err} ===")
-    print("Grupos (tickets) unicos:", len({s.group for s in samples}))
+    print("Grupos unicos (tickets de erro + sessoes limpas):", len({s.group for s in samples}))
 
     # Distribuicao por split x classe
     print("\n--- Split x classe (imagens) ---")

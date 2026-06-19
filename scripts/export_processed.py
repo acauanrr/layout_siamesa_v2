@@ -242,10 +242,17 @@ data/processed/
 
 ## Como o split foi feito (sem vazamento)
 
-- **Agrupado por ticket** (`IKSWW-\\d+`): todas as imagens de um mesmo bug vao para o MESMO
-  split — nunca cruzam train/val/test (0 vazamento, verificado em `build_splits.py`).
+- **Erros — agrupados por ticket** (`IKSWW-\\d+`): todas as imagens de um mesmo bug vao para o
+  MESMO split, nunca cruzam train/val/test.
+- **Telas limpas — agrupadas por SESSAO de captura (timestamp) + near-duplicate perceptual
+  (dHash)** ANTES do split. As capturas limpas sao sequenciais do mesmo device/sessao
+  (quase-duplicatas; similaridade DINO ~0.99); cada componente de sessao e' atomico e fica num
+  UNICO split. **Correcao da Fase 0 (jun/2026):** o agrupamento so-por-ticket NAO cobria as
+  telas limpas e elas vazavam entre os splits — agora nao mais.
 - **Estratificado por categoria**: cada classe (inclusive as raras `orientation`/`distortion`)
   aparece em train/val/test. Fracoes val/test = {cfg.val_frac:.2f}/{cfg.test_frac:.2f}; seed `{cfg.seed}`.
+- **0 vazamento de grupo entre splits**, verificado em `build_splits.py` e travado pelos testes
+  em `tests/test_split_isolation.py` (inclui a checagem da arvore materializada deste diretorio).
 
 ## Proveniencia
 
@@ -254,7 +261,8 @@ data/processed/
   antes do split (evita o modelo aprender a anotacao). Auditoria em `artifacts/reports/red_marks_*`.
 - **Deduplicacao (conteudo):** imagens de **conteudo identico** (verificacao por hash md5) foram
   removidas — ex.: a mesma imagem catalogada em 2 categorias e copias literais `_(1)`. O dataset
-  real e' **541 imagens UNICAS**, **0 duplicatas** e **0 vazamento** entre splits (verificado).
+  real e' **541 imagens UNICAS**, **0 duplicatas**; **0 vazamento de grupo entre splits** (limpas
+  agrupadas por sessao+dHash, erros por ticket — ver "Como o split foi feito").
 - Sinteticos: gerados das proprias telas limpas de treino (mesma resolucao/device) — quebram o
   confound de resolucao (ver ressalvas).
 
@@ -283,10 +291,19 @@ Sinteticos de **val/test** (sonda livre de confound) nao sao exportados aqui; re
 
 ## Ressalvas (importantes para comparar de forma honesta)
 
-- **Confound de resolucao:** as telas `clean` sao todas de um unico device (2076x2152); os erros
-  sao heterogeneos. Um classificador trivial de resolucao separa clean/erro com ~AUROC 0.98 SEM
-  olhar o layout. Por isso a metrica honesta de deteccao usa os **sinteticos livres de confound**
-  (mesma resolucao). Cuidado ao reportar acuracia global.
+- **⚠️ Confound de resolucao (NAO reporte acuracia/AUROC global como skill):** as telas `clean`
+  sao todas de **um unico device (2076x2152)**; os erros sao heterogeneos em resolucao. Um
+  classificador trivial **so de resolucao** separa clean/erro com **~AUROC 0.98 sem olhar o
+  layout**. Logo, qualquer metrica GLOBAL neste benchmark mede majoritariamente o device, nao a
+  deteccao de erro. **Para comparar modelos de forma justa**, use: (a) **deteccao sintetica livre
+  de confound** (erros injetados nas proprias limpas, mesma resolucao); (b) o **subconjunto
+  controlado** (mesmo form-factor/orientacao/kind); e/ou (c) compare contra o **baseline de
+  resolucao/padding** — um modelo so tem valor se SUPERAR esses baselines de confound.
+- **Teste e' exploratorio/confundido:** as 41 limpas de teste sao todas 2076x2152 e provem de
+  poucas sessoes de captura. Trate alegacoes de alta precisao com **IC95%** (amostras pequenas,
+  ex. 17 TP / 1 FP, sao estatisticamente insuficientes).
+- **Classes raras com suporte baixo:** `orientation` (~7) e `distortion` (~13) no total — F1 por
+  classe nessas e' instavel; reporte com cautela e prefira intervalos de confianca.
 - **Teto de separabilidade das categorias:** em features visuais congeladas (DINOv2), as 6
   categorias de erro tem F1-macro ~0.2 (categorias semanticamente sobrepostas + rotulo
   single-label para erros que coocorrem + classes raras). E um problema dificil — esperado.

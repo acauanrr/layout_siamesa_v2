@@ -43,18 +43,17 @@ def run_mode(base: Config, mode: str) -> dict:
     processed = Path("data/processed")
     # reais + train_synth da FONTE DA VERDADE (data/processed/)
     extract_processed(processed, emb, bb, batch_size=cfg.backbone.batch_size)
-    # sonda livre de confound val/test (de processed/{val,test}/real/clean)
-    for split, seed in [("val", 100), ("test", 200)]:
-        d = processed / split / "real" / "clean"
-        rows = [{"path": str(p.resolve())} for p in sorted(d.iterdir()) if p.suffix.lower() in _EXTS]
-        if rows:
-            extract_synthetic(None, emb / f"{split}_synth.npz", bb,
-                              n_variants=cfg.synthetic.n_variants,
-                              max_errors_per_image=cfg.synthetic.max_errors_per_image,
-                              seed=seed, batch_size=cfg.backbone.batch_size,
-                              multiclass=cfg.train.multiclass, clean_rows=rows)
+    # sonda livre de confound SO da VAL (anti-snooping: nunca toca test_synth aqui)
+    d = processed / "val" / "real" / "clean"
+    rows = [{"path": str(p.resolve())} for p in sorted(d.iterdir()) if p.suffix.lower() in _EXTS]
+    if rows:
+        extract_synthetic(None, emb / "val_synth.npz", bb,
+                          n_variants=cfg.synthetic.n_variants,
+                          max_errors_per_image=cfg.synthetic.max_errors_per_image,
+                          seed=100, batch_size=cfg.backbone.batch_size,
+                          multiclass=cfg.train.multiclass, clean_rows=rows)
     train_head(cfg, device=DEVICE)
-    return evaluate(cfg, device=DEVICE)
+    return evaluate(cfg, device=DEVICE)   # modo DEV (val); teste blindado
 
 
 def main() -> None:

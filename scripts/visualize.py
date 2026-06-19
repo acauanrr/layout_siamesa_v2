@@ -102,6 +102,8 @@ def main() -> None:
                     help="lista p/ comparar o tradeoff precisao×recall lado a lado")
     ap.add_argument("--extra-html", action="store_true",
                     help="gera tambem os HTML de acerto/erro (TP/TN/FP/FN) por limiar")
+    ap.add_argument("--final-test", action="store_true",
+                    help="visualiza o TESTE held-out (destrava; uma vez). Sem a flag, usa a VAL.")
     args = ap.parse_args()
     precisions = [float(x) for x in args.target_precisions.split(",")]
     cfg = Config.load(args.config)
@@ -110,8 +112,15 @@ def main() -> None:
     device = "cpu"
 
     tr = load_embeddings(emb_dir / "train.npz")
-    te = load_embeddings(emb_dir / "test.npz")
     va = load_embeddings(emb_dir / "val.npz")
+    # Fase 0: o teste e' blindado. Sem --final-test, visualiza a VAL no lugar do teste.
+    if args.final_test:
+        from siamese.protocol import allow_test_access
+        allow_test_access(True)
+        te = load_embeddings(emb_dir / "test.npz")
+    else:
+        print("[DEV] sem --final-test: visualizando a VAL no lugar do TESTE (teste blindado).")
+        te = va
     syn = load_embeddings(emb_dir / "train_synth.npz")
     model = load_model(Path(cfg.paths.models_dir) / "siamese_head.pt", device=device)
     multiclass = getattr(model, "num_classes", 1) > 1

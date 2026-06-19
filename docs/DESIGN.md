@@ -30,8 +30,9 @@ a resolução. Um modelo que "acerta 95%" no test global provavelmente está det
 aprendido e medido de forma honesta se quebrarmos esse confound. Fazemos isso com
 **injeção de erros sintéticos nas próprias imagens limpas** (mesma resolução/device),
 criando pares onde *só o conteúdo do erro muda*. O modelo treinado assim detecta erro de
-**conteúdo** (AUROC 0.88 / AP 0.97 em teste sintético livre de confound), enquanto um
-modelo treinado só com erros reais aprende a trapacear pela resolução (ver §7).
+**conteúdo** de forma **modesta** (held-out: AUROC **0.70** / AP 0.87 no sintético livre de
+confound; ver §5), enquanto um modelo treinado só com erros reais aprende a trapacear pela
+resolução (ver §7).
 
 **Recomendação nº 1 (de dados, não de arquitetura):** para um detector que generalize, é
 preciso coletar imagens **sem-erro** que cubram a mesma diversidade das com-erro — telas
@@ -75,8 +76,9 @@ Contrastive** (mais estável com poucos dados e sem exigir referência única).
 
 ## 3. Achados sobre os dados (auditoria de confounds)
 
-`python scripts/build_splits.py` imprime a auditoria completa. Resumo (360 imagens, 307
-grupos/tickets, split agrupado por ticket com **0 vazamento**):
+`python scripts/build_splits.py` imprime a auditoria completa. Resumo (541 imagens; split
+agrupado por **ticket de erro** + **sessão/near-dup das telas limpas**, com **0 vazamento de
+grupo** — ver §10.4 sobre a correção do vazamento de quase-duplicatas limpas):
 
 | Atributo | sem-erro | com-erro | Confound? |
 |---|---|---|---|
@@ -129,13 +131,14 @@ imagem ─► [resize anamórfico 518×518] ─► DINOv2 ViT-S/14 (CONGELADO)
   - O risco do `pad` — a *área* de cinza correlacionar com o aspect-ratio (logo com form
     factor) — é neutralizado calculando o `mean/std` dos patch tokens **apenas na região de
     conteúdo** (`content_patch_mask`, ver `geometry.py`).
-  - **Medição (test):** `pad` ≥ `resize` em todas as métricas honestas — subconjunto
-    controlado **0.865 → 0.910**, precisão@0.95 **0.917 → 1.000**, recall **0.39 → 0.50**,
-    detecção sintética 0.881 → 0.882. (`python scripts/compare_preprocess.py`.)
+  - **Medição (PRÉ-correção, no test):** `pad` ≥ `resize` em todas as métricas honestas —
+    subconjunto controlado **0.865 → 0.910**, recall, detecção sintética 0.881 → 0.882.
+    (Valores absolutos predam a correção de vazamento; `compare_preprocess.py` agora roda em
+    DEV/val. O padrão qualitativo — `pad` ajuda — se mantém. Held-out honesto na §5.)
 - **CLS + estatísticas de patch (1152-d).** black-region/empty-space são anomalias de
   **homogeneidade espacial**: o desvio-padrão dos patch tokens cai em regiões grandes
-  uniformes. Medimos o ganho: detecção sintética **AUROC 0.71 → 0.88** ao adicionar patch
-  stats (`use_patch_stats: true`, padrão).
+  uniformes. O ganho de adicionar patch stats (**AUROC 0.71 → 0.88**, pré-correção) motivou o
+  `use_patch_stats: true` (padrão); re-medir na val após a Fase 0.
 - **Cabeça de projeção compartilhada = a parte "siamesa".** A mesma `g` é aplicada a
   qualquer imagem; comparar duas imagens = comparar `z₁, z₂`. Treinada com **Supervised
   Contrastive** (`supcon_loss`) para que limpo forme cluster compacto e erro caia fora.
@@ -161,26 +164,37 @@ imagem ─► [resize anamórfico 518×518] ─► DINOv2 ViT-S/14 (CONGELADO)
 
 ## 5. Resultados reais (produção: patch-stats, `pad`, real+sintético)
 
-Test = 54 imagens (held-out, agrupado por ticket). `python scripts/evaluate.py`.
+**Avaliação HELD-OUT honesta** (config `proj_dim=128` **congelada** após seleção íntegra na val +
+estabilidade multi-seed/1-SE; teste = **130 imagens** = 41 limpas + 89 erros; processado **uma única
+vez** via `scripts/evaluate.py --final-test`; jun/2026). Os números legados aqui (F1 0.86, P@5 1.0,
+alta-precisão 1.0@recall 0.5) foram **REVOGADOS** — mediam split com vazamento + config escolhida por
+snooping no teste (§10.4). O held-out real é modesto:
 
-**Detecção sintética livre de confound (o sinal honesto de erro de conteúdo):**
-`AUROC = 0.88 · AP = 0.97`. **Subconjunto controlado:** `AUROC = 0.91`.
+### Estágio 1 — detecção vs. baselines de confound
 
-**Ponto de operação PADRÃO (balanceado, `decision.objective: f1`):**
-`Acurácia 0.85 · Precisão 0.86 · Recall 0.86 · F1 0.86` (confusão TP24/TN22/FP4/FN4).
-É o número justo para comparação entre modelos.
-
-**Modo opcional de alta precisão (`decision.objective: precision`):**
-| precisão-alvo | precisão (test) | recall (test) | TP / FP / FN |
+| Avaliação (TEST) | Modelo | Baseline de confound | |
 |---|---|---|---|
-| 0.90 / 0.95 / 0.99 | **1.000** | 0.500 | 14 / **0** / 14 |
+| Global AUROC | 0.725 (IC95 0.67–0.84) | **resolução trivial 0.994** · padding 0.972 · DINO-cru 0.746 | ❌ não supera |
+| Falseabilidade | prediz ERRO 0.725 | prediz RESOLUÇÃO 0.721 | ❌ rastreia resolução |
+| **Controlado** (n=71, 30 err) | **0.671** (IC95 **0.576**–0.835) | confound 0.383 | ✅ supera |
+| **Sintético livre de confound** (41 vs 164) | **0.695** · AP 0.868 | — | ✅ sinal real, modesto |
 
-**precision@K** (revisão humana do topo do ranking — entregável auditável):
-`P@5 = 1.00 · P@10 = 1.00 · P@20 = 0.85`.
+Ponto de operação (limiar de F1 fixado na val): acc 0.70 · F1 0.815 · **bAcc 0.544 · MCC 0.171 ·
+especificidade 0.12 · FPR 0.88** (TP86/TN5/FP36/FN3; acc IC95 0.50–0.93). O limiar, calibrado em
+**26 limpas** de val, é **instável** — inunda o teste de falso-positivo. Limiar por precisão-alvo
+(val→test): alvo 0.90 → precisão 0.805 / recall 0.371 (fp=8); alvo 0.95/0.99 → 0.781 / 0.281 (fp=7).
+**precision@K**: P@5 0.6 · P@10 0.6 · P@20 0.75.
 
-> Interpretação: no ponto **balanceado** o modelo dá acurácia 0.85 / F1 0.86 (números de
-> comparação). No modo **alta precisão** (fila de triagem) marca 14 erros com **zero
-> falsos-positivos**; com 28 erros reais no test o IC é largo (±~10pp).
+### Estágio 2 — categoria (n=89 erros)
+F1-macro **0.388** (protótipo) / 0.379 (aux head), dominado por ruído de amostra minúscula
+(`distortion` 0.80 em n=3; `orientation` 0.00 em n=2; `black_bars` 0.52; `overlay` 0.39).
+
+> **Veredito honesto:** globalmente o modelo **NÃO supera** o confound de resolução (0.73 vs 0.99) e
+> a falseabilidade confirma que rastreia resolução ≈ tão bem quanto erro. Existe sinal de layout
+> **real porém modesto** no regime **controlado** (0.67, IC exclui 0.5) e **sintético** (0.70). Uma
+> alegação de **alta precisão NÃO se sustenta** (fp de um dígito, IC largo — critério #7 da
+> auditoria). O teto é dado pelo **confound de um único device**: subir depende de **novas telas
+> limpas pareadas** (Fase 1), não de mais tuning.
 
 ---
 
@@ -190,9 +204,9 @@ Test = 54 imagens (held-out, agrupado por ticket). `python scripts/evaluate.py`.
 
 1. **Métrica primária = subconjunto controlado** (unfold-portrait-screenshot) + **detecção
    sintética** livre de confound.
-2. **Baselines de confound** sempre lado a lado (resolução trivial 0.982; confound 0.911;
-   DINOv2 cru 0.849; kNN one-class 0.72). O modelo só "vale" se superar o confound no
-   regime controlado/sintético.
+2. **Baselines de confound** sempre lado a lado (held-out: resolução trivial **0.994**; padding
+   0.972; DINOv2 cru 0.746; kNN one-class 0.675). O modelo só "vale" se superar o confound no
+   regime controlado/sintético — e **globalmente não supera** (ver §5).
 3. **Testes de falseabilidade:** (a) o score do modelo prediz a *resolução* tão bem quanto
    o *erro*? (b) embaralhar rótulos dentro do estrato.
 4. **Auditoria same-resolution** (os 8 erros 2076×2152), separando o ticket independente
@@ -203,9 +217,13 @@ Test = 54 imagens (held-out, agrupado por ticket). `python scripts/evaluate.py`.
 
 ## 7. Ablação — a prova de que sintético quebra o confound
 
-`python scripts/ablation.py` (test, patch-stats):
+> **⚠️ Números absolutos abaixo são PRÉ-correção (split com vazamento + medidos no test).** O
+> `ablation.py` agora roda em modo **DEV (val)** e o teste é trancado; o held-out honesto está na
+> §5. A ablação continua válida **qualitativamente** (o padrão importa, não os valores): "só real"
+> prediz resolução ≈ tão bem quanto erro (aprende o confound); "só sintético" derruba isso. Re-rode
+> `python scripts/ablation.py` p/ os números na val.
 
-| Treino | synt AUROC | synt AP | global AUROC | controlado AUROC | →prediz **resolução** | →prediz **erro** |
+| Treino (pré-correção) | synt AUROC | synt AP | global AUROC | controlado AUROC | →prediz **resolução** | →prediz **erro** |
 |---|---|---|---|---|---|---|
 | **real + sintético** | 0.881 | 0.966 | 0.890 | 0.865 | 0.912 | 0.890 |
 | **só sintético** | 0.861 | 0.961 | 0.668 | 0.679 | **0.657** | 0.668 |
@@ -279,7 +297,8 @@ por patch** (37×37) sobreposto na tela. `python scripts/localize.py`.
 2. Rotular os 16 `_competitor` (são UI limpa de concorrente?) e tratar ruído de rótulo.
 3. Inpaint das 2 imagens `_boundBox` (caixa vermelha) antes da extração.
 4. Enriquecer os erros sintéticos com base em telas reais (cobrir fotos/glare).
-5. Avaliação por k-fold agrupado (CV) para reduzir o IC do test de 54 imagens.
+5. Avaliação por k-fold agrupado (CV) + calibração de limiar OOF para reduzir o IC do test (130
+   imagens; o ponto de operação calibrado em 26 limpas de val é instável — ver §5).
 
 ---
 
@@ -316,7 +335,11 @@ apagado: `red_marks_deleted.csv`. `errors_dataset/`: 407 → **372**.
 — `IKSWW-173861` (2 imagens de "black region" catalogadas TAMBÉM em `overlay`, uma com nome
 trocado) e uma cópia literal `IKSWW-93466_..._(1)`. Removidas (mantendo a cópia na categoria
 correta, confirmada visualmente): `errors_dataset/`: 372 → **369**; dataset real **= 541 únicas**,
-**0 duplicatas, 0 vazamento entre splits** (verificado).
+**0 duplicatas**. **0 vazamento de grupo entre splits** (verificado) — porém o teste "ticket não
+cruza split" **não detectava** o vazamento de **quase-duplicatas das telas limpas** (capturas
+sequenciais da mesma sessão/dispositivo, similaridade DINO ≈ 0.99). Corrigido na **Fase 0**:
+limpas reagrupadas por **sessão (timestamp) + near-duplicate perceptual (dHash)** antes do split
+(172 arquivos → 15 grupos atômicos), travado por `tests/test_split_isolation.py`. Ver §10.4.
 
 ### 10.3 Multi-cluster em DOIS ESTÁGIOS (B)
 A "ida além do binário" foi feita preservando o gate de alta precisão:
@@ -336,16 +359,34 @@ A "ida além do binário" foi feita preservando o gate de alta precisão:
 ### 10.4 Grid search e o "problema do limiar" (A)
 `scripts/grid_search.py` varre o produto cartesiano de uma grade (chaves dotted), isola
 artefatos por ponto e **re-extrai embeddings só quando o eixo toca `backbone.*`/`synthetic.*`**.
-**Mitigação de data-snooping** (a raiz do "problema do limiar" levantado na reunião): a VAL é
-reusada para early-stop + fusão + limiar, então a seleção de combos é feita pela métrica
-**livre de limiar e de confound** — o **AUROC sintético do gate** (`sintetico_livre_de_confound`)
-—, e o melhor combo é reavaliado no TEST **uma única vez**. No split atual (deduplicado,
-`test_frac=0.24`, grid amplo de 24 combos) a melhor config e'
-`temperature=0.05, aux_weight=0.6, proj_dim=256, k_prototypes=3` (synth-AUROC do gate **0.81**,
-ponto balanceado **F1 0.85**/acc 0.78/AUROC 0.79, controlado **0.69**, alta-precisao **0.89 @
-recall 0.28**, P@5 **1.0**). Métricas reportadas em **TREINO e TESTE** (`evaluate.py`): treino
-in-sample F1 0.99 / Estágio-2 F1 1.0 (protótipos ajustados no treino) — o gap treino→teste é o
-overfitting esperado em base pequena; os números de TESTE held-out são os que valem.
+**❌ Afirmação anterior estava ERRADA (corrigido na Fase 0 — auditoria jun/2026).** O texto
+aqui dizia que a seleção de combos era "livre de data-snooping" porque usava o **AUROC sintético
+do gate** (`sintetico_livre_de_confound`). Mas essa métrica era calculada em `evaluate.py`
+**a partir de `test_synth.npz` + as imagens limpas de TESTE** — ou seja, **a seleção enxergava o
+teste** (snooping real, problema #2 da auditoria). A "melhor config" antes anunciada aqui
+(`temperature=0.05, aux_weight=0.6, proj_dim=256, k_prototypes=3`, synth-AUROC 0.81, F1 0.85…)
+fica **REVOGADA** — foi escolhida sobre derivados do teste.
+
+**Protocolo corrigido:**
+- `scripts/grid_search.py` **não importa `evaluate` nem lê nenhum `test*`**: ranqueia
+  **exclusivamente por métricas de VALIDAÇÃO** devolvidas por `train_head()` — por padrão
+  `val_synth_gate` (gate sintético livre de confound medido na **val**: protótipos vêm do
+  *train*, sonda = limpas de val + `val_synth.npz`). Independente de limiar e de confound.
+- O **TESTE é trancado programaticamente** (`siamese.protocol.guard_path`, acionado em
+  `siamese.features.load_embeddings`): qualquer leitura de `test.npz`/`test_synth.npz` sem a
+  trava liberada levanta `TestSetAccessError`. Grid/ablação/visualização ficam **fisicamente
+  impedidos** de tocar o teste.
+- O melhor combo, **depois de congelado**, é avaliado no TESTE **uma única vez** via
+  `python scripts/evaluate.py --config <vencedora> --final-test` (único ponto que chama
+  `allow_test_access()`). Em modo DEV (sem a flag) o `evaluate.py` reporta sobre a **val**.
+- Testes de integridade em `tests/test_protocol_guard.py` (grid shield) e
+  `tests/test_split_isolation.py` travam essas invariantes.
+
+> Métricas de TREINO continuam reportadas como **ressubstituição** (in-sample, p/ diagnóstico de
+> overfitting — F1 de treino ≈ 1.0 é artefato de protótipos ajustados no próprio treino, **não
+> reportar como resultado**). Os números **vinculantes** só saem do `--final-test`, uma vez,
+> após seleção íntegra — e uma alegação de alta precisão exige o **limite inferior do IC95%**
+> alcançando a meta.
 
 **Estabilizacao da selecao (IMPLEMENTADO):** o early-stop do `train.py` agora usa o **sintetico de
 VALIDACAO** (`val_synth.npz` — erros injetados nas limpas de val, mesma resolucao -> livre de

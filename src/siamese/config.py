@@ -55,7 +55,17 @@ class TrainCfg:
     use_real_errors: bool = True   # incluir erros REAIS no treino (alem dos sinteticos)
     use_synthetic: bool = True     # incluir erros SINTETICOS (anti-confound)
     balance_batches: bool = True
-    early_stop_metric: str = "val_ap"  # average precision na validacao
+    # criterio de early-stop / salvamento do melhor checkpoint. AGORA respeitado em train.py
+    # (antes era ignorado: a formula max(proto,aux)+0.5*cat_f1 era hardcoded). Opcoes:
+    #   val_synth_gate        gate LIVRE DE CONFOUND na val (aux head; metrica de PRODUCAO) [PADRAO]
+    #   val_synth_gate_proto  idem, via score de prototipo
+    #   val_synth_gate_max    max(proto,aux) livre de confound (legado)
+    #   val_synth_gate+cat_f1 0.5*gate_livre_confound + 0.5*F1_categoria (deteccao+cluster)
+    #   val_ap                AP do gate CONFUNDIDO (legado; pode rastrear resolucao)
+    #   val_ap_aux            AP da cabeca auxiliar (confundido)
+    #   val_cat_f1            so a clusterizacao por categoria (Estagio 2)
+    early_stop_metric: str = "val_synth_gate"
+    max_oversample_per_class: int = 0  # teto de repeticoes/classe por epoca no sampler (0 = sem teto)
     patience: int = 40
 
 

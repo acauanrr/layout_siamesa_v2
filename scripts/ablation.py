@@ -38,8 +38,8 @@ def main() -> None:
         cfg.train.use_synthetic = use_synth
         print(f"\n########## {name} (real={use_real}, synth={use_synth}) ##########")
         train_head(cfg)
-        rep = evaluate(cfg)
-        syn = rep["sintetico_livre_de_confound"]["modelo_fusao"]
+        rep = evaluate(cfg)   # modo DEV (val); o teste NAO e' tocado (anti-snooping)
+        syn = rep["sintetico_livre_de_confound"].get("modelo_fusao", {"auroc": float("nan"), "ap": float("nan")})
         glob = rep["global_vs_baselines"]["modelo_fusao"]
         ctrl = rep.get("primaria_subconjunto_controlado", {}).get("modelo_fusao", {"auroc": float("nan")})
         f = rep["falseabilidade"]

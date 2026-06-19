@@ -84,6 +84,8 @@ def main() -> None:
     ap.add_argument("--objective", choices=["f1", "precision"], default=None,
                     help="ponto de operacao; default = o do config (f1 = balanceado)")
     ap.add_argument("--target-precision", type=float, default=None)
+    ap.add_argument("--final-test", action="store_true",
+                    help="OBRIGATORIO: este script visualiza o TESTE held-out (destrava; uma vez).")
     args = ap.parse_args()
 
     cfg = Config.load(args.config)
@@ -92,6 +94,14 @@ def main() -> None:
     emb_dir = Path(cfg.paths.emb_dir)
     rep = Path(cfg.paths.reports_dir); rep.mkdir(parents=True, exist_ok=True)
     device = "cpu"
+
+    # Fase 0: visualizar o TESTE exige --final-test (blindagem; processar o teste uma so vez).
+    if not args.final_test:
+        print("visualize_test.py mostra o TESTE held-out. Rode com --final-test "
+              "(uma vez, apos congelar a config). Para iterar, use scripts/visualize.py (val).")
+        return
+    from siamese.protocol import allow_test_access
+    allow_test_access(True)
 
     tr = load_embeddings(emb_dir / "train.npz")
     va = load_embeddings(emb_dir / "val.npz")

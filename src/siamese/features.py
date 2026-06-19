@@ -101,6 +101,16 @@ def scan_processed(processed_dir: Path) -> list[dict]:
                         rec["parent"] = parts[0] if parts else ""
                         rec["kind"] = "synthetic"
                     rows.append(rec)
+    # group consistente com o split: telas LIMPAS reagrupadas por SESSAO de captura (timestamp),
+    # nao por arquivo. Mantem a unidade de bootstrap/CI = sessao (independencia real), igual ao
+    # split de build_splits. (so timestamp aqui: deterministico e sem ler pixels.)
+    from .manifest import clean_session_components
+    clean = [r for r in rows if r.get("category") == "clean"]
+    if clean:
+        names = sorted({Path(r["path"]).name for r in clean})
+        gmap = clean_session_components(names)
+        for r in clean:
+            r["group"] = gmap[Path(r["path"]).name]
     return rows
 
 
@@ -185,5 +195,10 @@ def extract_split(
 
 
 def load_embeddings(npz_path: Path) -> dict:
-    z = np.load(npz_path, allow_pickle=False)
+    # Fase 0: blindagem do teste. Carregar test.npz/test_synth.npz so e' permitido com a
+    # trava --final-test liberada (ver siamese.protocol). Este e' o chokepoint por onde TODO
+    # modelo consome embeddings -> grid_search/ablation/visualize ficam fisicamente impedidos
+    # de tocar o teste durante a selecao (anti-snooping).
+    from .protocol import guard_path
+    z = np.load(guard_path(npz_path), allow_pickle=False)
     return {k: z[k] for k in z.files}

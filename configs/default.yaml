@@ -28,7 +28,10 @@ synthetic:
 
 head:
   hidden: 256
-  proj_dim: 256            # grid amplo (early-stop estavel): 256 melhor
+  proj_dim: 128            # CONGELADO: vencedor da selecao HONESTA (grid na val + estabilidade
+                           # multi-seed, regra do 1-SE): val_synth_gate 0.826+-0.002, a maior media
+                           # E a mais estavel. < 256 (Fase 4: cabeca menor generaliza), mas nao 32
+                           # (subajuste). Selecionado SO na val; teste nunca lido.
   p_drop: 0.3
 
 train:
@@ -36,21 +39,27 @@ train:
   lr: 0.001
   weight_decay: 0.0001
   batch_size: 128
-  temperature: 0.05        # grid amplo (early-stop livre de confound): 0.05 melhor
+  temperature: 0.05        # LEGADO (selecao antiga, com snooping) — NAO re-validado na selecao
+                           # honesta (que variou so proj_dim/weight_decay/k). Re-selecionar ainda.
   loss: supcon             # supcon | contrastive
-  aux_weight: 0.6          # grid amplo: 0.6 melhor (synth-AUROC 0.81)
+  aux_weight: 0.6          # LEGADO (selecao antiga) — idem temperature: ainda nao re-validado.
   multiclass: true         # true = clusteriza por CATEGORIA (clean + 6 erros de errors_dataset/);
                            # aux=softmax, SupCon por categoria, batches balanceados por classe,
                            # decisao em 2 estagios (gate binario + categoria por prototipo).
                            # false = detector BINARIO legado (erro/sem-erro).
   use_real_errors: true    # inclui erros reais no treino
-  use_synthetic: true      # inclui erros sinteticos no treino
+  use_synthetic: true      # inclui erros sinteticos no treino (AND com synthetic.enabled)
   balance_batches: true
-  early_stop_metric: val_ap
-  patience: 80             # early-stop sobre o gate livre de confound (val_synth) + cluster
+  # criterio de salvamento/early-stop (agora RESPEITADO em train.py). Padrao = gate livre de
+  # confound (val_synth, metrica de producao). Ver opcoes em src/siamese/config.py.
+  early_stop_metric: val_synth_gate
+  max_oversample_per_class: 12  # teto de copias/classe por epoca (Fase 4.4: limita superamostragem
+                                # das classes raras orientation/distortion). 0 = sem teto.
+  patience: 80             # early-stop sobre o gate livre de confound (val_synth)
 
 decision:
-  k_prototypes: 3          # grid amplo: 3 melhor (clusters limpo/categoria multimodais)
+  k_prototypes: 3          # selecao honesta: k nao afeta o gate (val_synth_gate); k=3 da F1 de
+                           # categoria marginalmente melhor que k=1. Mantido em 3.
   objective: f1            # "f1" = ponto BALANCEADO (acuracia/precisao justas p/ comparar)
                            # "precision" = modo alta precisao (zero falso-alarme)
   target_precision: 0.95   # usado apenas quando objective=precision
