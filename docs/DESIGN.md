@@ -280,3 +280,119 @@ por patch** (37×37) sobreposto na tela. `python scripts/localize.py`.
 3. Inpaint das 2 imagens `_boundBox` (caixa vermelha) antes da extração.
 4. Enriquecer os erros sintéticos com base em telas reais (cobrir fotos/glare).
 5. Avaliação por k-fold agrupado (CV) para reduzir o IC do test de 54 imagens.
+
+---
+
+## 10. Extensão multi-cluster, reorganização de dados e limpeza (jun/2026)
+
+Quatro mudanças foram entregues sobre o detector binário descrito acima.
+
+### 10.1 Reorganização de dados (C)
+A fonte de erros migrou da pasta flat `with_errors/` (binária) para
+**`errors_dataset/<categoria>/`**, com 6 categorias reais (`black bars`, `disordered
+layout`, `distortion`, `empty space`, `orientation`, `overlay`). `manifest.scan_dataset`
+ganhou um parâmetro **`source`** (exclusivo: `errors_dataset` padrão | `with_errors`
+legado — nunca os dois, pois ≥40 nomes coincidem), um **mapa pasta→slug** canônico e uma
+coluna **`category`** que flui do CSV → `.npz` (`features.py`) → treino/decisão. O split
+continua **agrupado por ticket** (0 vazamento; só 3 tickets cruzam categorias) mas passou
+a ser **estratificado por categoria**, garantindo que toda classe — inclusive as raras
+(`orientation`=7, `distortion`=13) — apareça em train/val/test. Fracoes `val/test = 0.15/0.24`
+(**test ampliado** p/ >=40 telas limpas de referencia — estimativa robusta de falso-alarme:
+**41 limpas / 90 erros / 131 no test**; train 328, val 82; seed 42). O caminho binário legado é
+100% reprodutível (`--source with_errors`, `train.multiclass: false`).
+
+### 10.2 Limpeza de marcações vermelhas (D)
+`scripts/audit_red_marks.py` detecta (numpy+PIL+scipy) marcações humanas vermelhas
+(retângulos/círculos/setas) por máscara de vermelho forte + componentes conexos + heurística
+de forma (contorno oco / traço fino). Das 407 imagens, 59 foram sinalizadas; a decisão de
+exclusão foi tomada por **inspeção visual** (folhas de contato rotuladas) para evitar apagar
+conteúdo vermelho legítimo (apps de compras, vídeos, banners). **35 imagens** foram excluídas
+(30 com `_boundbox` no nome — anotação explícita, em vermelho OU azul — + 5 formas desenhadas
+confirmadas); os ~24 falsos-positivos da heurística (preço riscado, jaqueta, vestido) foram
+**preservados** e listados em `artifacts/reports/red_marks_review.csv`. Manifesto do que foi
+apagado: `red_marks_deleted.csv`. `errors_dataset/`: 407 → **372**.
+
+**Deduplicação por conteúdo (hash):** auditoria por md5 achou **3 imagens de conteúdo idêntico**
+— `IKSWW-173861` (2 imagens de "black region" catalogadas TAMBÉM em `overlay`, uma com nome
+trocado) e uma cópia literal `IKSWW-93466_..._(1)`. Removidas (mantendo a cópia na categoria
+correta, confirmada visualmente): `errors_dataset/`: 372 → **369**; dataset real **= 541 únicas**,
+**0 duplicatas, 0 vazamento entre splits** (verificado).
+
+### 10.3 Multi-cluster em DOIS ESTÁGIOS (B)
+A "ida além do binário" foi feita preservando o gate de alta precisão:
+
+- **Estágio 1 — gate "tem erro?"**: inalterado conceitualmente (distância ao protótipo
+  limpo + cabeça auxiliar + fusão calibrada + limiar). No multi-classe, `p(erro)=1−softmax[clean]`.
+- **Estágio 2 — categoria**: a cabeça `g()` é treinada com **SupCon multi-classe** (a
+  `supcon_loss` já agrupa por igualdade de rótulo — sem mudança); a cabeça auxiliar virou
+  `Linear(proj_dim, N+1)` + cross-entropy; os **batches são balanceados por classe**
+  (≥2/classe, oversample das raras). A decisão de categoria usa **protótipos por categoria**
+  (`fit_category_prototypes`, k-means dentro de cada classe) + `argmax` de similaridade.
+  Os erros **sintéticos** alimentam os dois estágios: anti-confound (todos) no Estágio 1 e,
+  rotulados, os 4 tipos com correspondente real (`black_region→black_bars`,
+  `empty_space`, `overlay`, `disorder→disordered_layout`) no Estágio 2 (`cropped` não tem
+  classe real → só Estágio 1; `distortion`/`orientation` não têm gerador).
+
+### 10.4 Grid search e o "problema do limiar" (A)
+`scripts/grid_search.py` varre o produto cartesiano de uma grade (chaves dotted), isola
+artefatos por ponto e **re-extrai embeddings só quando o eixo toca `backbone.*`/`synthetic.*`**.
+**Mitigação de data-snooping** (a raiz do "problema do limiar" levantado na reunião): a VAL é
+reusada para early-stop + fusão + limiar, então a seleção de combos é feita pela métrica
+**livre de limiar e de confound** — o **AUROC sintético do gate** (`sintetico_livre_de_confound`)
+—, e o melhor combo é reavaliado no TEST **uma única vez**. No split atual (deduplicado,
+`test_frac=0.24`, grid amplo de 24 combos) a melhor config e'
+`temperature=0.05, aux_weight=0.6, proj_dim=256, k_prototypes=3` (synth-AUROC do gate **0.81**,
+ponto balanceado **F1 0.85**/acc 0.78/AUROC 0.79, controlado **0.69**, alta-precisao **0.89 @
+recall 0.28**, P@5 **1.0**). Métricas reportadas em **TREINO e TESTE** (`evaluate.py`): treino
+in-sample F1 0.99 / Estágio-2 F1 1.0 (protótipos ajustados no treino) — o gap treino→teste é o
+overfitting esperado em base pequena; os números de TESTE held-out são os que valem.
+
+**Estabilizacao da selecao (IMPLEMENTADO):** o early-stop do `train.py` agora usa o **sintetico de
+VALIDACAO** (`val_synth.npz` — erros injetados nas limpas de val, mesma resolucao -> livre de
+confound), combinado com o macro-F1 de categoria, em vez do gate confundido por resolucao. Isso
+elevou o synth-AUROC do gate de **0.70 -> 0.81** e tornou o ranking do grid muito mais **estavel**
+(os melhores combos agora ficam agrupados em 0.78-0.81, sem os colapsos para ~0.50 de antes), sem
+data-snooping no TEST. `epochs=500`, `patience=80` (teto alto; o early-stop decide a parada).
+Ainda assim, com base pequena/confundida, **re-rode o grid ao mudar os dados**.
+
+### 10.5 Limitação central do Estágio 2 (achado honesto)
+A clusterização por categoria tem um **teto de separabilidade nas próprias features DINOv2**:
+um classificador direto (LogReg / kNN-5) sobre os embeddings crus das 6 categorias atinge só
+**F1-macro ≈ 0.10–0.21** (kNN-5: acc 0.375). Nossa cabeça (F1-macro 0.24) já está **no/levemente
+acima** desse teto. As causas são estruturais, não de implementação: (i) categorias
+**semanticamente sobrepostas** (black bars vs empty space vs cropped são todas "regiões";
+overlay vs disordered são "elementos deslocados"); (ii) **rótulo single-label** para erros que
+**coocorrem** na mesma tela; (iii) classes **raras** (`orientation`=1, `distortion`=2 no test)
+sem poder estatístico. O Estágio 2 é forte nas categorias visuais frequentes (`black_bars` F1
+0.67, `overlay` 0.44, `empty_space` 0.35) e satura nas demais. **Alavancas** (análogas à §1):
+mais dados por categoria rara, rótulo **multi-rótulo**, ou taxonomia mais grossa (ex.: agrupar
+distortion+disordered). A explicabilidade (heatmaps) segue **adiada** (§7b), conforme alinhado.
+
+### 10.6 Fluxo de dados: `data/processed/` como FONTE DA VERDADE
+
+Para garantir que **o modelo e as outras equipes usem exatamente o mesmo dataset**, o fluxo foi
+invertido: o modelo **não** lê mais de `data/input/`; ele lê do dataset **materializado e
+categorizado em `data/processed/`** (o mesmo que é compartilhado).
+
+```
+data/input/  (entrada bruta; novas imagens chegam aqui)
+  └─ build_splits.py      → data/splits/*.csv      (atribui split: agrupado+estratificado)
+  └─ export_processed.py  → data/processed/        (MATERIALIZA reais por categoria + sintéticos + manifest/card)
+data/processed/  (FONTE DA VERDADE — o que o modelo usa e o que se compartilha)
+  └─ extract_features.py  → artifacts/embeddings/  (VARRE a arvore processed/; paths apontam p/ processed/)
+  └─ make_synthetic.py    → val/test_synth.npz     (sonda livre de confound, de processed/{val,test}/real/clean)
+  └─ train.py / evaluate.py / visualize.py
+```
+
+- `extract_features.py` **varre a árvore** `processed/<split>/<fonte>/<categoria>/` (estrutura =
+  verdade; metadados de confound re-derivados do nome do arquivo via `manifest._parse_meta`).
+  Logo, **correções manuais** em `processed/` (mover de categoria, remover, editar pixels) são
+  honradas sem precisar de manifesto — basta re-rodar `extract_features` → `train` → `evaluate`.
+- **Não** re-rode `export_processed` após correções manuais: ele reconstrói `processed/` a partir
+  de `input/` (com `_reset_dir`) e sobrescreveria os ajustes. `export_processed` é só para
+  **ingestão** (novas imagens em `input/`).
+- O `train_synth.npz` vem de `extract_features` embedando `processed/train/synthetic/` (FONTE
+  única); `make_synthetic` cobre apenas a sonda val/test. Verificado: após o refactor, **100% dos
+  embeddings apontam para `data/processed/`** e as métricas ficam idênticas (mesmo dado, nova fonte).
+- O caminho **legado** (`extract_split` lendo `splits/*.csv`→`input/`) permanece em `features.py`
+  para reprodutibilidade binária, mas não é o fluxo padrão.

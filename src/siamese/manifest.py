@@ -19,9 +19,27 @@ import re
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-# Rotulos
+# Rotulos binarios (mantidos p/ o gate limpo-vs-erro e p/ a esteira binaria legada)
 LABEL_NO_ERROR = 0
 LABEL_ERROR = 1
+
+# --- Taxonomia multi-cluster -------------------------------------------------
+# As 6 categorias de erro espelham as subpastas reais de data/input/errors_dataset/
+# (nomes com ESPACO -> slug estavel). 'clean' e a classe sem-erro (no_erros/).
+# A ordem de CATEGORIES define o id numerico usado no treino/decisao multi-classe:
+#   0 = clean, 1..6 = categorias de erro (em ordem alfabetica do slug, deterministico).
+ERROR_DIR_TO_SLUG = {
+    "black bars": "black_bars",
+    "disordered layout": "disordered_layout",
+    "distortion": "distortion",
+    "empty space": "empty_space",
+    "orientation": "orientation",
+    "overlay": "overlay",
+}
+CLEAN_CATEGORY = "clean"
+CATEGORIES = [CLEAN_CATEGORY] + sorted(ERROR_DIR_TO_SLUG.values())
+CATEGORY_TO_ID = {c: i for i, c in enumerate(CATEGORIES)}
+ID_TO_CATEGORY = {i: c for c, i in CATEGORY_TO_ID.items()}
 
 # Regex de metadados (case-insensitive)
 _RE_TICKET = re.compile(r"(IKSWW[-_]\d+)", re.IGNORECASE)
@@ -40,7 +58,8 @@ class Sample:
     kind: str            # 'screenshot' | 'photo'
     is_competitor: bool
     has_boundbox: bool
-    source: str          # 'no_erros' | 'with_errors'
+    source: str          # 'no_erros' | 'errors_dataset' | 'with_errors'
+    category: str = ""   # 'clean' | slug da categoria de erro | '' (legado with_errors)
     split: str = ""      # preenchido depois
 
 
@@ -84,26 +103,62 @@ def _group_key(path: Path, source: str) -> str:
     return f"{source}:{path.stem}"
 
 
-def scan_dataset(input_dir: Path) -> list[Sample]:
-    """Le data/input/{no_erros,with_errors} e devolve a lista de Samples (sem split)."""
+_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+
+
+def _scan_dir(d: Path, *, label: int, source: str, category: str) -> list[Sample]:
     samples: list[Sample] = []
-    specs = [("no_erros", LABEL_NO_ERROR), ("with_errors", LABEL_ERROR)]
-    exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
-    for sub, label in specs:
-        d = input_dir / sub
+    for p in sorted(d.iterdir()):
+        if p.suffix.lower() not in _EXTS:
+            continue
+        samples.append(Sample(
+            path=str(p.resolve()),
+            label=label,
+            group=_group_key(p, source),
+            source=source,
+            category=category,
+            **_parse_meta(p.name, source),
+        ))
+    return samples
+
+
+def scan_dataset(input_dir: Path, source: str = "errors_dataset") -> list[Sample]:
+    """Le data/input e devolve a lista de Samples (sem split).
+
+    A classe LIMPA vem sempre de `no_erros/` (label 0, category='clean').
+
+    source="errors_dataset" (PADRAO): os erros vem de `errors_dataset/<categoria>/`,
+        preservando a CATEGORIA do erro (multi-cluster). Cada subpasta vira label 1 +
+        category=<slug> (ver ERROR_DIR_TO_SLUG).
+    source="with_errors" (LEGADO): os erros vem da pasta flat `with_errors/` (binario),
+        com category='' . Mantido para reproduzir os resultados binarios antigos.
+
+    As fontes sao EXCLUSIVAS (nunca as duas juntas): >=40 nomes coincidem entre
+    with_errors/ e errors_dataset/, e misturar criaria duplicatas/vazamento.
+    """
+    if source not in ("errors_dataset", "with_errors"):
+        raise ValueError(f"source invalido: {source!r} (use 'errors_dataset' ou 'with_errors')")
+
+    clean_dir = input_dir / "no_erros"
+    if not clean_dir.is_dir():
+        raise FileNotFoundError(f"Pasta esperada nao encontrada: {clean_dir}")
+    samples = _scan_dir(clean_dir, label=LABEL_NO_ERROR, source="no_erros", category=CLEAN_CATEGORY)
+
+    if source == "errors_dataset":
+        base = input_dir / "errors_dataset"
+        if not base.is_dir():
+            raise FileNotFoundError(f"Pasta esperada nao encontrada: {base}")
+        for folder, slug in ERROR_DIR_TO_SLUG.items():
+            d = base / folder
+            if not d.is_dir():
+                continue  # categoria ausente -> ignora (sem quebrar)
+            samples += _scan_dir(d, label=LABEL_ERROR, source="errors_dataset", category=slug)
+    else:  # with_errors (legado binario)
+        d = input_dir / "with_errors"
         if not d.is_dir():
             raise FileNotFoundError(f"Pasta esperada nao encontrada: {d}")
-        for p in sorted(d.iterdir()):
-            if p.suffix.lower() not in exts:
-                continue
-            meta = _parse_meta(p.name, sub)
-            samples.append(Sample(
-                path=str(p.resolve()),
-                label=label,
-                group=_group_key(p, sub),
-                source=sub,
-                **meta,
-            ))
+        samples += _scan_dir(d, label=LABEL_ERROR, source="with_errors", category="")
+
     return samples
 
 
@@ -113,33 +168,56 @@ def grouped_stratified_split(
     val_frac: float = 0.15,
     test_frac: float = 0.15,
     seed: int = 42,
+    stratify: str = "category",
 ) -> list[Sample]:
-    """Split deterministico, ESTRATIFICADO por classe e AGRUPADO por `group`.
+    """Split deterministico, AGRUPADO por `group` (ticket) e ESTRATIFICADO.
 
-    Estrategia: para cada classe separadamente (estratificacao), embaralha os grupos
-    de forma deterministica e os aloca a test/val/train por contagem cumulativa de
-    imagens ate atingir as fracoes-alvo. Como cada grupo inteiro vai para um unico
-    split, nao ha vazamento de ticket entre splits.
+    - Agrupamento: todas as imagens de um mesmo ticket vao para o MESMO split
+      (grupo atomico) -> sem vazamento. Verificado em build_splits.py.
+    - Estratificacao (`stratify`):
+        "category" (PADRAO, multi-cluster): estratifica pela CATEGORIA do grupo, para
+            que cada categoria (inclusive raras como orientation/distortion) apareca em
+            train/val/test. A chave do grupo e a categoria MAJORITARIA entre suas
+            imagens (resolve os poucos tickets que cruzam categorias sem vazar).
+        "label" (legado binario): estratifica por rotulo 0/1 (comportamento antigo).
+      No modo legado `with_errors` a categoria e '' para todo erro, entao "category"
+      degenera para 2 estratos {clean, ''} == binario.
+
+    Para cada estrato: embaralha os grupos deterministicamente e os aloca a test/val/
+    train por contagem cumulativa de imagens ate atingir as fracoes-alvo.
     """
     import random
+    from collections import Counter
 
     rng = random.Random(seed)
-    by_label: dict[int, dict[str, list[Sample]]] = {}
-    for s in samples:
-        by_label.setdefault(s.label, {}).setdefault(s.group, []).append(s)
 
-    for label, groups in by_label.items():
-        group_ids = list(groups.keys())
-        # ordena por nome para estabilidade e depois embaralha com seed
-        group_ids.sort()
+    # 1. agrupa por ticket (grupo atomico)
+    groups: dict[str, list[Sample]] = {}
+    for s in samples:
+        groups.setdefault(s.group, []).append(s)
+
+    # 2. chave de estrato por grupo
+    def strat_key(members: list[Sample]):
+        if stratify == "category":
+            return Counter(m.category for m in members).most_common(1)[0][0]
+        return members[0].label
+
+    by_strat: dict[object, dict[str, list[Sample]]] = {}
+    for gid, members in groups.items():
+        by_strat.setdefault(strat_key(members), {})[gid] = members
+
+    # 3. aloca cada estrato a test/val/train
+    for _strat in sorted(by_strat, key=str):
+        gmap = by_strat[_strat]
+        group_ids = sorted(gmap.keys())  # estabilidade
         rng.shuffle(group_ids)
-        total = sum(len(groups[g]) for g in group_ids)
+        total = sum(len(gmap[g]) for g in group_ids)
         n_test_target = round(total * test_frac)
         n_val_target = round(total * val_frac)
 
         n_test = n_val = 0
         for g in group_ids:
-            sz = len(groups[g])
+            sz = len(gmap[g])
             if n_test < n_test_target:
                 split = "test"
                 n_test += sz
@@ -148,13 +226,13 @@ def grouped_stratified_split(
                 n_val += sz
             else:
                 split = "train"
-            for s in groups[g]:
+            for s in gmap[g]:
                 s.split = split
     return samples
 
 
 FIELDS = [
-    "path", "label", "group", "split", "form_factor",
+    "path", "label", "category", "group", "split", "form_factor",
     "orientation", "kind", "is_competitor", "has_boundbox", "source",
 ]
 

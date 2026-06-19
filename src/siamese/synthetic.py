@@ -31,6 +31,20 @@ from PIL import Image
 
 ERROR_TYPES = ["black_region", "empty_space", "overlay", "disorder", "cropped"]
 
+# Mapeia cada tipo sintetico -> slug da categoria REAL correspondente (taxonomia de 6
+# classes de errors_dataset/). 'cropped' NAO tem categoria real (decisao: nao modelar
+# Cropped) -> None: usado apenas no modo binario/anti-confound, nunca rotulado em multi-classe.
+# 'distortion' e 'orientation' (categorias reais) NAO tem gerador sintetico.
+SYNTH_TO_CATEGORY = {
+    "black_region": "black_bars",
+    "empty_space": "empty_space",
+    "overlay": "overlay",
+    "disorder": "disordered_layout",
+    "cropped": None,
+}
+# tipos que mapeiam para uma categoria real -> usados na geracao sintetica MULTI-CLASSE
+MULTICLASS_SYNTH_TYPES = [t for t, c in SYNTH_TO_CATEGORY.items() if c is not None]
+
 
 def _bg_color(img: Image.Image) -> tuple[int, int, int]:
     """Estima a cor de fundo pela mediana das bordas (cantos/margens)."""

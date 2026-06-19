@@ -28,12 +28,18 @@ def main() -> None:
     print("\n================ AVALIACAO HONESTA ================")
     print(f"Test: {rep['n_test']} imagens")
     op = rep.get("ponto_operacao", {})
+    optr = rep.get("ponto_operacao_treino", {})
     if op:
         ci = op.get("ci95_acuracia", [float('nan'), float('nan')])
-        print(f"\n>>> PONTO DE OPERACAO ({op['objetivo']}, padrao) — NUMEROS PRINCIPAIS <<<")
-        print(f"    Acuracia={op['acuracia']:.3f} (IC95 {ci[0]:.2f}-{ci[1]:.2f})  Precisao={op['precisao']:.3f}  "
-              f"Recall={op['recall']:.3f}  F1={op['f1']:.3f}")
-        print(f"    AUROC={op['auroc']:.3f}  AP={op['ap']:.3f}  | confusao={op['confusao']}")
+        print(f"\n>>> PONTO DE OPERACAO ({op['objetivo']}, limiar fixado na VAL) — TREINO vs TESTE <<<")
+        print(f"  {'':6s} {'acc':>6s} {'prec':>6s} {'rec':>6s} {'F1':>6s} {'AUROC':>6s} {'AP':>6s}  confusao")
+        if optr:
+            print(f"  TREINO {optr['acuracia']:6.3f} {optr['precisao']:6.3f} {optr['recall']:6.3f} "
+                  f"{optr['f1']:6.3f} {optr['auroc']:6.3f} {optr['ap']:6.3f}  {optr['confusao']}")
+        print(f"  TESTE  {op['acuracia']:6.3f} {op['precisao']:6.3f} {op['recall']:6.3f} "
+              f"{op['f1']:6.3f} {op['auroc']:6.3f} {op['ap']:6.3f}  {op['confusao']}")
+        print(f"  (TESTE held-out: acc IC95 {ci[0]:.2f}-{ci[1]:.2f} — sao os numeros que valem; "
+              f"treino e' in-sample, mostra o gap/overfitting)")
     print("\n--- 1) GLOBAL: modelo vs baselines de CONFOUND (cuidado: global e confundido) ---")
     for k, v in rep["global_vs_baselines"].items():
         print(f"  {k:34s} {_fmt(v)}")
@@ -69,6 +75,21 @@ def main() -> None:
     print(f"\n  precision@K: {rep['precision_at_k']}")
     ci = rep["ci95_global_auroc_fusao"]
     print(f"  IC95 AUROC global (fusao): ({ci[0]:.3f}, {ci[1]:.3f})")
+
+    if "estagio2_categoria" in rep:
+        e2 = rep["estagio2_categoria"]; e2tr = rep.get("estagio2_categoria_treino", {})
+        print(f"\n--- ESTAGIO 2) CLUSTERIZACAO POR CATEGORIA (TREINO vs TESTE) ---")
+        print(f"  classes: {', '.join(e2['classes'])}")
+        if e2tr:
+            mt = e2tr["por_prototipo"]
+            print(f"  TREINO (n_erro={e2tr['n_erro']:3d})  prototipo: acc={mt['accuracy']:.3f}  F1_macro={mt['f1_macro']:.3f}")
+        for via in ("por_prototipo", "por_aux_head"):
+            m = e2[via]
+            print(f"  TESTE  (n_erro={e2['n_erro']:3d})  [{via:13s}] acc={m['accuracy']:.3f}  F1_macro={m['f1_macro']:.3f}")
+            print(f"                   F1/classe: " +
+                  "  ".join(f"{k}={v:.2f}" for k, v in m["f1_por_classe"].items()))
+        print(f"  matrizes -> {cfg.paths.reports_dir}/confusion_matrix_categoria{{,_treino}}.png")
+
     print(f"\nRelatorio completo: {cfg.paths.reports_dir}/evaluation_report.json")
     print(f"Graficos: {cfg.paths.reports_dir}/evaluation_plots.png")
 

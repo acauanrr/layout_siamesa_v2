@@ -60,21 +60,29 @@ class SiamesePairHead(nn.Module):
 
 class SiameseNet(nn.Module):
     """Modelo de producao: encoder de projecao COMPARTILHADO (g) + cabecalho auxiliar
-    de classificacao binaria direta sobre z.
+    de classificacao direta sobre z.
 
     - z = g(x)         -> espaco metrico L2-normalizado (treinado por SupCon/contrastiva)
-    - aux_logit = w.z  -> detector binario direto (nao depende de banco de referencias)
+    - aux              -> detector direto (nao depende de banco de referencias):
+        num_classes == 1 -> 1 logit (sigmoid/BCE): detector BINARIO (limpo vs erro).
+        num_classes  > 1 -> [B, num_classes] (softmax/cross-entropy): classificador
+            MULTI-CLASSE sobre {clean + categorias de erro}. O gate binario "tem erro?"
+            e' derivado como 1 - P(clean). (Estagio 1 do desenho de dois estagios.)
 
-    A decisao final funde score_de_prototipo(z) com aux_logit (ver decision.py / evaluate).
+    A decisao final funde score_de_prototipo(z) com aux (ver decision.py / evaluate.py).
     """
 
-    def __init__(self, in_dim: int, hidden: int = 256, proj_dim: int = 128, p_drop: float = 0.3):
+    def __init__(self, in_dim: int, hidden: int = 256, proj_dim: int = 128,
+                 p_drop: float = 0.3, num_classes: int = 1):
         super().__init__()
         self.proj = ProjectionHead(in_dim, hidden, proj_dim, p_drop)
-        self.aux = nn.Linear(proj_dim, 1)
+        self.aux = nn.Linear(proj_dim, num_classes)
         self.proj_dim = proj_dim
+        self.num_classes = num_classes
 
     def forward(self, x: torch.Tensor):
         z = self.proj(x, normalize=True)
-        aux_logit = self.aux(z).squeeze(-1)
-        return z, aux_logit
+        aux = self.aux(z)
+        if self.num_classes == 1:
+            aux = aux.squeeze(-1)   # [B] logit binario (compat. com o caminho legado)
+        return z, aux

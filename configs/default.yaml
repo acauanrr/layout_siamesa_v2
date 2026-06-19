@@ -2,7 +2,7 @@
 # Cabeca siamesa sobre DINOv2 ViT-S/14 congelado; decisao por prototipo do cluster limpo.
 seed: 42
 val_frac: 0.15
-test_frac: 0.15
+test_frac: 0.24           # teste >= 40 telas limpas (estimativa robusta de falso-alarme)
 
 paths:
   input_dir: data/input
@@ -28,25 +28,29 @@ synthetic:
 
 head:
   hidden: 256
-  proj_dim: 128
+  proj_dim: 256            # grid amplo (early-stop estavel): 256 melhor
   p_drop: 0.3
 
 train:
-  epochs: 300
+  epochs: 500              # teto alto; o early-stop (patience) decide quando parar
   lr: 0.001
   weight_decay: 0.0001
   batch_size: 128
-  temperature: 0.1
+  temperature: 0.05        # grid amplo (early-stop livre de confound): 0.05 melhor
   loss: supcon             # supcon | contrastive
-  aux_weight: 0.3          # peso do cabecalho auxiliar de classificacao binaria
+  aux_weight: 0.6          # grid amplo: 0.6 melhor (synth-AUROC 0.81)
+  multiclass: true         # true = clusteriza por CATEGORIA (clean + 6 erros de errors_dataset/);
+                           # aux=softmax, SupCon por categoria, batches balanceados por classe,
+                           # decisao em 2 estagios (gate binario + categoria por prototipo).
+                           # false = detector BINARIO legado (erro/sem-erro).
   use_real_errors: true    # inclui erros reais no treino
   use_synthetic: true      # inclui erros sinteticos no treino
   balance_batches: true
   early_stop_metric: val_ap
-  patience: 40
+  patience: 80             # early-stop sobre o gate livre de confound (val_synth) + cluster
 
 decision:
-  k_prototypes: 1          # prototipos do cluster "limpo" (k-means); 1 basta se unimodal
+  k_prototypes: 3          # grid amplo: 3 melhor (clusters limpo/categoria multimodais)
   objective: f1            # "f1" = ponto BALANCEADO (acuracia/precisao justas p/ comparar)
                            # "precision" = modo alta precisao (zero falso-alarme)
   target_precision: 0.95   # usado apenas quando objective=precision

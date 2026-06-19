@@ -1,0 +1,455 @@
+{
+  "n_test": 131,
+  "multiclass": true,
+  "target_precision": 0.95,
+  "global_vs_baselines": {
+    "modelo_proto": {
+      "auroc": 0.7585365853658537,
+      "ap": 0.8496794859442302
+    },
+    "modelo_aux": {
+      "auroc": 0.7718157181571816,
+      "ap": 0.8513275100621795
+    },
+    "modelo_fusao": {
+      "auroc": 0.7747967479674797,
+      "ap": 0.8527250798318907
+    },
+    "baseline_confound_resaspect_photo": {
+      "auroc": 0.7222222222222222,
+      "ap": 0.9089446110368286
+    },
+    "baseline_resolucao_trivial": {
+      "auroc": 1.0,
+      "ap": 1.0
+    },
+    "baseline_logreg_dinov2_cru": {
+      "auroc": 0.8897018970189702,
+      "ap": 0.9436743998591951
+    },
+    "baseline_oneclass_knn_dinov2": {
+      "auroc": 0.7398373983739837,
+      "ap": 0.8192234210821747
+    },
+    "baseline_fracao_padding_cinza": {
+      "auroc": 0.9555555555555556,
+      "ap": 0.9859277369779377
+    }
+  },
+  "primaria_subconjunto_controlado": {
+    "n": 69,
+    "n_erro": 28,
+    "modelo_fusao": {
+      "auroc": 0.6942508710801394,
+      "ap": 0.6305361776647013
+    },
+    "modelo_proto": {
+      "auroc": 0.6655052264808363,
+      "ap": 0.6054308517586072
+    },
+    "baseline_confound": {
+      "auroc": 0.4642857142857143,
+      "ap": 0.6673116738334129
+    },
+    "ci95_fusao_auroc": [
+      0.5560360977695075,
+      0.8127745745633677
+    ]
+  },
+  "sintetico_livre_de_confound": {
+    "n_clean": 41,
+    "n_synth": 164,
+    "modelo_proto": {
+      "auroc": 0.7755056513979774,
+      "ap": 0.9253647544884231
+    },
+    "modelo_fusao": {
+      "auroc": 0.7836109458655562,
+      "ap": 0.9284494297097494
+    },
+    "nota": "erros injetados nas proprias imagens limpas de teste (mesma resolucao) -> sem confound geometrico"
+  },
+  "auditoria_same_resolution": {
+    "n": 1,
+    "itens": [
+      {
+        "file": "IKSWW-99166_unfold_portrait_screenshot1.png",
+        "score_proto": 0.4475897550582886,
+        "fused": 0.8025605082511902,
+        "independente": true
+      }
+    ],
+    "nota": "Screenshot_* sao quase-duplicatas da sessao no_erros; 'independente'=True e o unico teste real anti-confound"
+  },
+  "falseabilidade": {
+    "auroc_modelo_predizendo_resolucao": 0.7747967479674797,
+    "auroc_modelo_predizendo_erro": 0.7747967479674797,
+    "interpretacao": "Se os dois AUROC sao parecidos, o modelo rastreia resolucao, nao erro. Diferenca grande favorece deteccao de conteudo.",
+    "auroc_label_shuffle_no_estrato": 0.8864498644986449
+  },
+  "limiar_por_precisao": {
+    "precisao_alvo_0.9": {
+      "threshold": 0.8025605082511902,
+      "val": {
+        "val_precision": 1.0,
+        "val_recall": 0.03571428571428571,
+        "target_precision": 0.9
+      },
+      "test_precision": 1.0,
+      "test_recall": 0.03333333333333333,
+      "test_tp": 3,
+      "test_fp": 0,
+      "test_fn": 87
+    },
+    "precisao_alvo_0.95": {
+      "threshold": 0.8025605082511902,
+      "val": {
+        "val_precision": 1.0,
+        "val_recall": 0.03571428571428571,
+        "target_precision": 0.95
+      },
+      "test_precision": 1.0,
+      "test_recall": 0.03333333333333333,
+      "test_tp": 3,
+      "test_fp": 0,
+      "test_fn": 87
+    },
+    "precisao_alvo_0.99": {
+      "threshold": 0.8025605082511902,
+      "val": {
+        "val_precision": 1.0,
+        "val_recall": 0.03571428571428571,
+        "target_precision": 0.99
+      },
+      "test_precision": 1.0,
+      "test_recall": 0.03333333333333333,
+      "test_tp": 3,
+      "test_fp": 0,
+      "test_fn": 87
+    }
+  },
+  "precision_at_k": {
+    "5": 1.0,
+    "10": 0.9,
+    "20": 0.85
+  },
+  "ci95_global_auroc_fusao": [
+    0.6767818322981366,
+    0.8628301805213241
+  ],
+  "ponto_operacao": {
+    "objetivo": "f1",
+    "threshold": 0.5695962309837341,
+    "n": 131,
+    "acuracia": 0.7786259541984732,
+    "balanced_accuracy": 0.6861788617886179,
+    "precisao": 0.7850467289719626,
+    "recall": 0.9333333333333333,
+    "f1": 0.8527918781725888,
+    "auroc": 0.7747967479674797,
+    "ap": 0.8527250798318907,
+    "confusao": {
+      "TP": 84,
+      "TN": 18,
+      "FP": 23,
+      "FN": 6
+    },
+    "ci95_acuracia": [
+      0.7036892361111111,
+      0.8467880448165477
+    ]
+  },
+  "ponto_operacao_treino": {
+    "objetivo": "f1",
+    "threshold": 0.5695962309837341,
+    "n": 328,
+    "acuracia": 0.975609756097561,
+    "balanced_accuracy": 0.964424514200299,
+    "precisao": 0.9694323144104804,
+    "recall": 0.9955156950672646,
+    "f1": 0.9823008849557522,
+    "auroc": 0.9965406790518898,
+    "ap": 0.9982186928628654,
+    "confusao": {
+      "TP": 222,
+      "TN": 98,
+      "FP": 7,
+      "FN": 1
+    },
+    "ci95_acuracia": [
+      0.9569197530864197,
+      0.9909645338109193
+    ]
+  },
+  "estagio2_categoria": {
+    "n_erro": 90,
+    "classes": [
+      "black_bars",
+      "disordered_layout",
+      "distortion",
+      "empty_space",
+      "orientation",
+      "overlay"
+    ],
+    "por_prototipo": {
+      "accuracy": 0.32222222222222224,
+      "f1_macro": 0.18936930897715212,
+      "f1_por_classe": {
+        "black_bars": 0.43137254901960786,
+        "disordered_layout": 0.07407407407407407,
+        "distortion": 0.0,
+        "empty_space": 0.2,
+        "orientation": 0.0,
+        "overlay": 0.4307692307692308
+      },
+      "confusion_matrix": [
+        [
+          11,
+          1,
+          0,
+          4,
+          1,
+          10
+        ],
+        [
+          4,
+          1,
+          0,
+          3,
+          1,
+          5
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          3,
+          4,
+          0,
+          3,
+          0,
+          7
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          4,
+          6,
+          0,
+          3,
+          0,
+          14
+        ]
+      ]
+    },
+    "por_aux_head": {
+      "accuracy": 0.35555555555555557,
+      "f1_macro": 0.21890199963970458,
+      "f1_por_classe": {
+        "black_bars": 0.46153846153846156,
+        "disordered_layout": 0.14285714285714285,
+        "distortion": 0.0,
+        "empty_space": 0.25,
+        "orientation": 0.0,
+        "overlay": 0.45901639344262296
+      },
+      "confusion_matrix": [
+        [
+          12,
+          1,
+          0,
+          5,
+          1,
+          8
+        ],
+        [
+          4,
+          2,
+          0,
+          3,
+          1,
+          4
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          3,
+          4,
+          0,
+          4,
+          0,
+          6
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          4,
+          6,
+          0,
+          3,
+          0,
+          14
+        ]
+      ]
+    },
+    "nota": "categoria atribuida SO a imagens de ERRO (held-out). 'por_prototipo' = clusterizacao no espaco z (protótipo mais próximo)."
+  },
+  "estagio2_categoria_treino": {
+    "n_erro": 223,
+    "classes": [
+      "black_bars",
+      "disordered_layout",
+      "distortion",
+      "empty_space",
+      "orientation",
+      "overlay"
+    ],
+    "por_prototipo": {
+      "accuracy": 1.0,
+      "f1_macro": 1.0,
+      "f1_por_classe": {
+        "black_bars": 1.0,
+        "disordered_layout": 1.0,
+        "distortion": 1.0,
+        "empty_space": 1.0,
+        "orientation": 1.0,
+        "overlay": 1.0
+      },
+      "confusion_matrix": [
+        [
+          68,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          33,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          8,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          39,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          4,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          71
+        ]
+      ]
+    },
+    "por_aux_head": {
+      "accuracy": 1.0,
+      "f1_macro": 1.0,
+      "f1_por_classe": {
+        "black_bars": 1.0,
+        "disordered_layout": 1.0,
+        "distortion": 1.0,
+        "empty_space": 1.0,
+        "orientation": 1.0,
+        "overlay": 1.0
+      },
+      "confusion_matrix": [
+        [
+          68,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          33,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          8,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          39,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          4,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          71
+        ]
+      ]
+    }
+  }
+}

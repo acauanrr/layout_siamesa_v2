@@ -19,12 +19,13 @@ import torch
 
 from siamese.config import Config
 from siamese.backbone import DinoV2Backbone, BackboneConfig
-from siamese.features import extract_split
+from siamese.features import extract_processed
 from siamese.synth_features import extract_synthetic
 from siamese.train import train_head
 from siamese.evaluate import evaluate
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 
 
 def run_mode(base: Config, mode: str) -> dict:
@@ -38,16 +39,20 @@ def run_mode(base: Config, mode: str) -> dict:
 
     bb = DinoV2Backbone(BackboneConfig(size=cfg.backbone.size, use_patch_stats=True,
                                        preprocess=mode, device=DEVICE))
-    splits = Path(cfg.paths.splits_dir)
     emb = Path(cfg.paths.emb_dir)
-    for split in ("train", "val", "test"):
-        extract_split(splits / f"{split}.csv", emb / f"{split}.npz", bb,
-                      batch_size=cfg.backbone.batch_size)
-    for split, seed in [("train", 0), ("val", 100), ("test", 200)]:
-        extract_synthetic(splits / f"{split}.csv", emb / f"{split}_synth.npz", bb,
-                          n_variants=cfg.synthetic.n_variants,
-                          max_errors_per_image=cfg.synthetic.max_errors_per_image,
-                          seed=seed, batch_size=cfg.backbone.batch_size)
+    processed = Path("data/processed")
+    # reais + train_synth da FONTE DA VERDADE (data/processed/)
+    extract_processed(processed, emb, bb, batch_size=cfg.backbone.batch_size)
+    # sonda livre de confound val/test (de processed/{val,test}/real/clean)
+    for split, seed in [("val", 100), ("test", 200)]:
+        d = processed / split / "real" / "clean"
+        rows = [{"path": str(p.resolve())} for p in sorted(d.iterdir()) if p.suffix.lower() in _EXTS]
+        if rows:
+            extract_synthetic(None, emb / f"{split}_synth.npz", bb,
+                              n_variants=cfg.synthetic.n_variants,
+                              max_errors_per_image=cfg.synthetic.max_errors_per_image,
+                              seed=seed, batch_size=cfg.backbone.batch_size,
+                              multiclass=cfg.train.multiclass, clean_rows=rows)
     train_head(cfg, device=DEVICE)
     return evaluate(cfg, device=DEVICE)
 

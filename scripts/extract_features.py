@@ -1,9 +1,18 @@
 #!/usr/bin/env python
-"""Extrai e cacheia embeddings DINOv2 para cada split.
+"""Extrai e cacheia embeddings DINOv2 a partir do DATASET CANONICO em data/processed/.
+
+FONTE DA VERDADE = data/processed/ (NAO data/input/). O que estiver materializado em
+processed/<split>/<fonte>/<categoria>/ e' exatamente o que o modelo usa — incluindo
+correcoes/ajustes manuais. Varre a arvore, deriva split/fonte/categoria/label do caminho e
+os metadados do nome do arquivo, e cacheia os embeddings por (split, fonte).
+
+Saida: artifacts/embeddings/{train,val,test}.npz (reais) + train_synth.npz (sinteticos de
+treino, materializados em processed/train/synthetic/). val/test_synth (sonda livre de
+confound) sao gerados por make_synthetic.py a partir de processed/{val,test}/real/clean.
 
 Uso:
-    python scripts/extract_features.py --splits data/splits --out artifacts/embeddings \
-        [--use-patch-stats] [--size 518] [--batch-size 16]
+    python scripts/extract_features.py --processed data/processed --out artifacts/embeddings \
+        [--use-patch-stats] [--preprocess pad] [--size 518] [--batch-size 16]
 """
 from __future__ import annotations
 
@@ -14,12 +23,13 @@ from pathlib import Path
 import torch
 
 from siamese.backbone import DinoV2Backbone, BackboneConfig
-from siamese.features import extract_split
+from siamese.features import extract_processed
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--splits", type=Path, default=Path("data/splits"))
+    ap.add_argument("--processed", type=Path, default=Path("data/processed"),
+                    help="dataset canonico (fonte da verdade) — saida de export_processed.py")
     ap.add_argument("--out", type=Path, default=Path("artifacts/embeddings"))
     ap.add_argument("--size", type=int, default=518)
     ap.add_argument("--use-patch-stats", action="store_true",
@@ -32,23 +42,17 @@ def main() -> None:
 
     cfg = BackboneConfig(size=args.size, use_patch_stats=args.use_patch_stats,
                          preprocess=args.preprocess, device=args.device)
-    print(f"Carregando backbone DINOv2 ({cfg.model_name}) em {args.device}...")
+    print(f"Backbone DINOv2 ({cfg.model_name}) em {args.device} | FONTE: {args.processed}/")
     backbone = DinoV2Backbone(cfg)
     print(f"out_dim = {backbone.out_dim}")
 
-    for split in ("train", "val", "test"):
-        csv_path = args.splits / f"{split}.csv"
-        if not csv_path.exists():
-            print(f"  (pulando {split}: {csv_path} nao existe)")
-            continue
-        t0 = time.time()
-        info = extract_split(
-            csv_path, args.out / f"{split}.npz", backbone,
-            batch_size=args.batch_size, num_workers=args.num_workers,
-        )
-        print(f"  {split}: {info['n']} imagens -> {info['out']} ({time.time()-t0:.1f}s)")
-
-    print("Embeddings cacheados. Treino da cabeca siamesa agora e quase instantaneo.")
+    t0 = time.time()
+    summary = extract_processed(args.processed, args.out, backbone,
+                                batch_size=args.batch_size, num_workers=args.num_workers)
+    for k, n in summary.items():
+        print(f"  {k:18s} {n:4d} imagens")
+    print(f"Embeddings cacheados a partir de data/processed/ em {time.time()-t0:.1f}s "
+          f"(fonte da verdade — honra correcoes manuais).")
 
 
 if __name__ == "__main__":

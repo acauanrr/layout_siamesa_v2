@@ -48,7 +48,10 @@ class TrainCfg:
     batch_size: int = 128
     temperature: float = 0.1
     loss: str = "supcon"          # supcon | contrastive
-    aux_weight: float = 0.3       # peso do cabecalho auxiliar de classificacao binaria
+    aux_weight: float = 0.3       # peso do cabecalho auxiliar de classificacao
+    multiclass: bool = True       # True: clusteriza por CATEGORIA (clean + 6 erros); aux=softmax,
+                                  # SupCon por categoria, batches balanceados por classe.
+                                  # False: detector BINARIO legado (erro/sem-erro), aux=sigmoid.
     use_real_errors: bool = True   # incluir erros REAIS no treino (alem dos sinteticos)
     use_synthetic: bool = True     # incluir erros SINTETICOS (anti-confound)
     balance_batches: bool = True
@@ -68,7 +71,7 @@ class DecisionCfg:
 class Config:
     seed: int = 42
     val_frac: float = 0.15
-    test_frac: float = 0.15
+    test_frac: float = 0.24
     paths: Paths = field(default_factory=Paths)
     backbone: BackboneCfg = field(default_factory=BackboneCfg)
     synthetic: SyntheticCfg = field(default_factory=SyntheticCfg)

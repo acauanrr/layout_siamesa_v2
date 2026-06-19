@@ -43,6 +43,33 @@ def fit_prototypes(z_clean: np.ndarray, k: int = 1, seed: int = 0) -> np.ndarray
     return normalize(km.cluster_centers_)
 
 
+def fit_category_prototypes(z_err: np.ndarray, cat_ids_err: np.ndarray, *,
+                            k: int = 1, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """ESTAGIO 2: protótipos POR categoria de erro (k-means dentro de cada categoria).
+
+    z_err: embeddings projetados de imagens de ERRO; cat_ids_err: id de categoria (>=1)
+    de cada uma. Retorna (protos [M, d] L2-normalizados, proto_cat [M] = id de cada proto).
+    Categorias raras com poucas amostras caem para k=1 automaticamente (media).
+    """
+    cat_ids_err = np.asarray(cat_ids_err)
+    protos, proto_cat = [], []
+    for c in sorted({int(x) for x in cat_ids_err}):
+        zc = z_err[cat_ids_err == c]
+        if len(zc) == 0:
+            continue
+        p = fit_prototypes(zc, k=min(k, len(zc)), seed=seed)
+        protos.append(p)
+        proto_cat.extend([c] * len(p))
+    return np.concatenate(protos, axis=0), np.array(proto_cat, dtype=int)
+
+
+def assign_category(z: np.ndarray, protos: np.ndarray, proto_cat: np.ndarray) -> np.ndarray:
+    """Atribui cada z à categoria do protótipo de erro mais próximo (cosseno). Retorna [N] ids."""
+    zc = normalize(z)
+    sims = zc @ protos.T
+    return proto_cat[sims.argmax(axis=1)]
+
+
 def select_threshold_max_f1(scores: np.ndarray, labels: np.ndarray) -> tuple[float, dict]:
     """Limiar que MAXIMIZA o F1 (ponto de operacao BALANCEADO, justo para comparacao).
 

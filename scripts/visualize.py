@@ -29,11 +29,19 @@ from sklearn.metrics import precision_recall_curve, roc_auc_score
 from siamese.config import Config
 from siamese.features import load_embeddings, read_manifest
 from siamese.train import load_model
-from siamese.evaluate import model_embeddings
+from siamese.evaluate import model_embeddings, _aux_err
 from siamese.decision import (fit_prototypes, PrototypeDecider,
-                              select_threshold_for_precision, select_threshold_max_f1)
+                              select_threshold_for_precision, select_threshold_max_f1,
+                              fit_category_prototypes)
+from siamese.manifest import CATEGORY_TO_ID, ID_TO_CATEGORY, CATEGORIES
 
 COLORS = {"limpo": "#2ca02c", "erro_real": "#d62728", "erro_sintetico": "#ff7f0e", "prototipo": "#000000"}
+# paleta por CATEGORIA (multi-cluster): clean + 6 categorias de erro
+CATEGORY_COLORS = {
+    "clean": "#2ca02c", "black_bars": "#1f77b4", "disordered_layout": "#9467bd",
+    "distortion": "#8c564b", "empty_space": "#ff7f0e", "orientation": "#e377c2",
+    "overlay": "#d62728",
+}
 OUTCOME_COLORS = {
     "TP_acerto_erro": "#2ca02c",    # erro detectado corretamente (verde)
     "TN_acerto_limpo": "#1f77b4",   # limpo correto (azul)
@@ -106,18 +114,22 @@ def main() -> None:
     va = load_embeddings(emb_dir / "val.npz")
     syn = load_embeddings(emb_dir / "train_synth.npz")
     model = load_model(Path(cfg.paths.models_dir) / "siamese_head.pt", device=device)
+    multiclass = getattr(model, "num_classes", 1) > 1
 
     z_tr, aux_tr = model_embeddings(model, tr["emb"], device)
     z_te, aux_te = model_embeddings(model, te["emb"], device)
     z_va, aux_va = model_embeddings(model, va["emb"], device)
     z_sy, aux_sy = model_embeddings(model, syn["emb"], device)
+    # score escalar de erro da aux (binario: logit; multi-classe: 1 - P(clean))
+    ae_tr, ae_te, ae_va, ae_sy = (_aux_err(aux_tr, multiclass), _aux_err(aux_te, multiclass),
+                                  _aux_err(aux_va, multiclass), _aux_err(aux_sy, multiclass))
 
-    # prototipo do cluster limpo + decisao
+    # prototipo do cluster limpo + decisao (gate / Estagio 1)
     protos = fit_prototypes(z_tr[tr["label"] == 0], k=cfg.decision.k_prototypes, seed=cfg.seed)
     dec = PrototypeDecider(protos, 0.0, cfg.decision.target_precision)
     fus = LogisticRegression(max_iter=1000).fit(
-        np.stack([dec.scores(z_va), aux_va], 1), va["label"])
-    fused_va = fus.predict_proba(np.stack([dec.scores(z_va), aux_va], 1))[:, 1]
+        np.stack([dec.scores(z_va), ae_va], 1), va["label"])
+    fused_va = fus.predict_proba(np.stack([dec.scores(z_va), ae_va], 1))[:, 1]
     # limiar primario = ponto de operacao do config (f1 balanceado por padrao)
     if cfg.decision.objective == "precision":
         thr = select_threshold_for_precision(fused_va, va["label"], cfg.decision.target_precision)[0]
@@ -125,9 +137,6 @@ def main() -> None:
         thr = select_threshold_max_f1(fused_va, va["label"])[0]
 
     # ---- monta os grupos de pontos ----
-    clean_train_rows = [r for r in read_manifest(Path(cfg.paths.splits_dir) / "train.csv")
-                        if int(r["label"]) == 0]
-
     groups = []  # (z, raw, classe, split, label_texto)
     def add(zz, raw, classe, split, names):
         groups.append({"z": zz, "raw": raw, "classe": classe, "split": split, "names": names})
@@ -135,8 +144,8 @@ def main() -> None:
     m0 = tr["label"] == 0; m1 = tr["label"] == 1
     add(z_tr[m0], tr["emb"][m0], "limpo", "train", [Path(p).name for p in tr["path"][m0]])
     add(z_tr[m1], tr["emb"][m1], "erro_real", "train", [Path(p).name for p in tr["path"][m1]])
-    syn_names = [f"synth[{a}] <- {Path(clean_train_rows[p]['path']).stem}"
-                 for p, a in zip(syn["parent"], syn["applied"])]
+    # 'parent' agora e' o stem da imagem-mae (string), 'applied' o tipo sintetico
+    syn_names = [f"synth[{a}] <- {p}" for p, a in zip(syn["parent"], syn["applied"])]
     add(z_sy, syn["emb"], "erro_sintetico", "train", syn_names)
     mt0 = te["label"] == 0; mt1 = te["label"] == 1
     add(z_te[mt0], te["emb"][mt0], "limpo", "test", [Path(p).name for p in te["path"][mt0]])
@@ -148,12 +157,32 @@ def main() -> None:
     split = np.concatenate([[g["split"]] * len(g["z"]) for g in groups])
     names = sum([g["names"] for g in groups], [])
     sp = dec.scores(Z)
-    fused = fus.predict_proba(np.stack([sp, np.concatenate(
-        [aux_tr[m0], aux_tr[m1], aux_sy, aux_te[mt0], aux_te[mt1]])], 1))[:, 1]
+    ae_all = np.concatenate([ae_tr[m0], ae_tr[m1], ae_sy, ae_te[mt0], ae_te[mt1]])
+    fused = fus.predict_proba(np.stack([sp, ae_all], 1))[:, 1]
+
+    # categoria por ponto (alinhada a Z): clean / categoria real / categoria sintetica
+    categoria = np.concatenate([
+        np.array(["clean"] * int(m0.sum())),
+        tr["category"][m1].astype(str),
+        syn["category"].astype(str),
+        np.array(["clean"] * int(mt0.sum())),
+        te["category"][mt1].astype(str),
+    ])
+    # prototipos POR categoria (Estagio 2) — fit sobre os erros REAIS de treino
+    cat_protos = cat_proto_ids = cat_proto2 = None
+    if multiclass:
+        cat_ids_tr = np.array([CATEGORY_TO_ID.get(str(c), 0) for c in tr["category"]])
+        err = tr["label"] == 1
+        cat_protos, cat_proto_ids = fit_category_prototypes(
+            z_tr[err], cat_ids_tr[err], k=cfg.decision.k_prototypes, seed=cfg.seed)
 
     print("Reduzindo z aprendido (UMAP/t-SNE)...")
-    emb2_after = reduce_2d(np.concatenate([Z, protos]))
-    proto2 = emb2_after[len(Z):]; z2 = emb2_after[:len(Z)]
+    extras = [protos] + ([cat_protos] if cat_protos is not None else [])
+    emb2_after = reduce_2d(np.concatenate([Z] + extras))
+    z2 = emb2_after[:len(Z)]
+    proto2 = emb2_after[len(Z):len(Z) + len(protos)]
+    if cat_protos is not None:
+        cat_proto2 = emb2_after[len(Z) + len(protos):]
     print("Reduzindo DINOv2 cru...")
     raw2 = reduce_2d(RAW)
 
@@ -170,8 +199,14 @@ def main() -> None:
 
     # ---- figuras estaticas de apoio (usadas no relatorio) ----
     _static_embedding(rep, raw2, z2, proto2, classe)
-    _static_decision(rep, sp, classe, thr, te, z_te, dec, fus, aux_te)
+    _static_decision(rep, sp, classe, thr, te, z_te, dec, fus, ae_te)
     _static_outcome(rep, z2, proto2, outcome, split)
+
+    # ---- MULTI-CLUSTER: espaco colorido por CATEGORIA + protótipos de categoria ----
+    if multiclass:
+        _static_categories(rep, raw2, z2, cat_proto2, cat_proto_ids, categoria, split)
+        _interactive_categories(rep, raw2, z2, cat_proto2, cat_proto_ids, categoria,
+                                split, names, fused)
 
     # ---- TRADEOFF precisao×recall: varios limiares lado a lado ----
     thr_by_p = {p: select_threshold_for_precision(fused_va, va["label"], p)[0] for p in precisions}
@@ -199,7 +234,10 @@ def main() -> None:
         print(f"    alvo={p:.2f} thr={thr_by_p[p]:.3f}: precisao={prec:.3f} recall={rec:.3f} "
               f"(TP={tp} FP={fp} FN={fn})")
     print(f"\nVisualizacoes em {rep}/:")
-    print(f"  >>> clusters_apresentacao.html  <- PRINCIPAL (apresentar na reuniao)")
+    print(f"  >>> clusters_apresentacao.html  <- gate 'tem erro?' (Estagio 1, apresentar)")
+    if multiclass:
+        print(f"  >>> categorias_apresentacao.html  <- MULTI-CLUSTER por categoria (Estagio 2)")
+        print(f"      embedding_categorias.png  (espaco z colorido pelas {len(CATEGORIES)} classes + protótipos)")
     print(f"      separabilidade por distancia ao normal (AUROC): ANTES {sep_raw:.2f} -> DEPOIS {sep_z:.2f}")
     print("  embedding_space.png  decision_space.png  outcome_space.png  tradeoff_outcome.png  (apoio)")
     if args.extra_html:
@@ -225,7 +263,83 @@ def _static_embedding(rep, raw2, z2, proto2, classe):
     fig.tight_layout(); fig.savefig(rep / "embedding_space.png", dpi=120); plt.close(fig)
 
 
-def _static_decision(rep, sp, classe, thr, te, z_te, dec, fus, aux_te):
+def _static_categories(rep, raw2, z2, cat_proto2, cat_proto_ids, categoria, split):
+    """MULTI-CLUSTER (PNG): espaco cru (antes) vs z aprendido (depois), colorido por CATEGORIA.
+    treino = circulo pequeno (fundo); teste held-out = losango destacado; ★ = protótipo de categoria."""
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    cats = [c for c in CATEGORIES if (categoria == c).any()]
+    tr = split == "train"; teM = split == "test"
+    fig, ax = plt.subplots(1, 2, figsize=(16, 7))
+    for title, xy, a in [("Raw DINOv2 (BEFORE) — categories mixed", raw2, ax[0]),
+                         ("z learned (AFTER) — per-category clusters · ● train  ◆ test  ★ prototype", z2, ax[1])]:
+        for c in cats:
+            col = CATEGORY_COLORS.get(c, "#999999")
+            mk = (categoria == c) & tr
+            a.scatter(xy[mk, 0], xy[mk, 1], s=12, alpha=0.45, c=col, label=c, edgecolors="none")
+            mk = (categoria == c) & teM
+            a.scatter(xy[mk, 0], xy[mk, 1], s=60, alpha=0.95, c=col, marker="D",
+                      edgecolors="black", linewidths=0.6)
+        a.set_title(title, fontsize=10); a.set_xticks([]); a.set_yticks([]); a.legend(loc="best", fontsize=8)
+    if cat_proto2 is not None:
+        for i, cid in enumerate(cat_proto_ids):
+            nm = ID_TO_CATEGORY[int(cid)]
+            ax[1].scatter(cat_proto2[i, 0], cat_proto2[i, 1], s=320, marker="*",
+                          c=CATEGORY_COLORS.get(nm, "#000000"), edgecolors="black",
+                          linewidths=1.2, zorder=5)
+    fig.tight_layout(); fig.savefig(rep / "embedding_categorias.png", dpi=120); plt.close(fig)
+
+
+def _interactive_categories(rep, raw2, z2, cat_proto2, cat_proto_ids, categoria, split, names, fused):
+    """MULTI-CLUSTER (HTML interativo): antes×depois por categoria, com protótipos de categoria.
+    Clique na legenda p/ isolar uma categoria; passe o mouse p/ ver arquivo, split e p(erro)."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    names = np.asarray(names)
+    cats = [c for c in CATEGORIES if (categoria == c).any()]
+    fig = make_subplots(
+        rows=1, cols=2, horizontal_spacing=0.05,
+        subplot_titles=("BEFORE · raw DINOv2 — categories mixed",
+                        "AFTER · z-space (siamese) — clusters per category · ★ = prototype"))
+    for c in cats:
+        mk = categoria == c
+        col = CATEGORY_COLORS.get(c, "#999999")
+        sym = np.where(split[mk] == "test", "diamond", "circle")   # ● train · ◆ test
+        sz = np.where(split[mk] == "test", 11, 6)
+        ln = np.where(split[mk] == "test", 0.8, 0.0)
+        fig.add_trace(go.Scatter(
+            x=raw2[mk, 0], y=raw2[mk, 1], mode="markers", name=c, legendgroup=c, showlegend=False,
+            marker=dict(size=sz, color=col, symbol=sym, opacity=0.6, line=dict(width=ln, color="black")),
+            customdata=np.stack([names[mk], split[mk]], 1),
+            hovertemplate="<b>%{customdata[0]}</b><br>" + c + " · %{customdata[1]}<extra></extra>"),
+            row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=z2[mk, 0], y=z2[mk, 1], mode="markers", name=c, legendgroup=c, showlegend=True,
+            marker=dict(size=sz, color=col, symbol=sym, opacity=0.78, line=dict(width=ln, color="black")),
+            customdata=np.stack([names[mk], split[mk], fused[mk].round(3)], 1),
+            hovertemplate="<b>%{customdata[0]}</b><br>" + c +
+                          " · %{customdata[1]} · p(error)=%{customdata[2]}<extra></extra>"),
+            row=1, col=2)
+    if cat_proto2 is not None:
+        for i, cid in enumerate(cat_proto_ids):
+            nm = ID_TO_CATEGORY[int(cid)]
+            fig.add_trace(go.Scatter(
+                x=[cat_proto2[i, 0]], y=[cat_proto2[i, 1]], mode="markers", name=f"★ {nm}",
+                legendgroup=nm, showlegend=False,
+                marker=dict(size=18, color=CATEGORY_COLORS.get(nm, "#000000"), symbol="star",
+                            line=dict(width=1.4, color="black"))), row=1, col=2)
+    fig.update_layout(
+        title="Multi-cluster: error categories in the learned z-space  (● train · ◆ test held-out)",
+        height=620, hovermode="closest",
+        font=dict(family="Segoe UI, Helvetica, Arial, sans-serif", size=13),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.12, xanchor="center", x=0.5),
+        margin=dict(l=16, r=16, t=64, b=24), plot_bgcolor="#FAFBFD", paper_bgcolor="white")
+    fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+    fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False)
+    fig.write_html(rep / "categorias_apresentacao.html")
+
+
+def _static_decision(rep, sp, classe, thr, te, z_te, dec, fus, ae_te):
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(1, 2, figsize=(14, 5))
@@ -234,7 +348,7 @@ def _static_decision(rep, sp, classe, thr, te, z_te, dec, fus, aux_te):
     ax[0].set_title("Distance to the CLEAN prototype (decision rule)")
     ax[0].set_xlabel("score = 1 − cos(z, prototype)"); ax[0].legend(fontsize=8)
     # curva PR no test (fusao)
-    fused_te = fus.predict_proba(np.stack([dec.scores(z_te), aux_te], 1))[:, 1]
+    fused_te = fus.predict_proba(np.stack([dec.scores(z_te), ae_te], 1))[:, 1]
     p, r, _ = precision_recall_curve(te["label"], fused_te)
     ax[1].plot(r, p); ax[1].set_title("Precision–Recall (real TEST, fusion)")
     ax[1].set_xlabel("recall"); ax[1].set_ylabel("precision"); ax[1].set_ylim(0, 1.02)

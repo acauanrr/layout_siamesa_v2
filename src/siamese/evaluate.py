@@ -25,13 +25,31 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import normalize, StandardScaler
 from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import (roc_auc_score, average_precision_score, precision_recall_curve,
-                             accuracy_score, f1_score, balanced_accuracy_score)
+                             accuracy_score, f1_score, balanced_accuracy_score,
+                             confusion_matrix, classification_report)
 
 from .features import load_embeddings
 from .decision import (fit_prototypes, PrototypeDecider,
-                       select_threshold_for_precision, select_threshold_max_f1)
+                       select_threshold_for_precision, select_threshold_max_f1,
+                       fit_category_prototypes, assign_category)
+from .manifest import CATEGORY_TO_ID, ID_TO_CATEGORY, CATEGORIES, CLEAN_CATEGORY
 
 CLEAN_RES = (2076, 2152)
+
+
+def _aux_err(aux: np.ndarray, multiclass: bool) -> np.ndarray:
+    """Score escalar de 'erro' a partir da cabeca auxiliar.
+    binario: o proprio logit. multi-classe: 1 - softmax[clean] = P(tem erro)."""
+    if multiclass:
+        e = np.exp(aux - aux.max(axis=1, keepdims=True))
+        p = e / e.sum(axis=1, keepdims=True)
+        return 1.0 - p[:, 0]
+    return aux
+
+
+def _cat_ids(z: dict) -> np.ndarray:
+    """Vetor de id de categoria (0=clean,1..N) a partir da coluna 'category' do npz."""
+    return np.array([CATEGORY_TO_ID.get(str(c), 0) for c in z.get("category", [])], dtype=int)
 
 
 # ---------- utilitarios ----------
@@ -101,25 +119,31 @@ def evaluate(cfg, device: str | None = None) -> dict:
     va = load_embeddings(emb_dir / "val.npz")
     te = load_embeddings(emb_dir / "test.npz")
     model = load_model(Path(cfg.paths.models_dir) / "siamese_head.pt", device=device)
+    multiclass = getattr(model, "num_classes", 1) > 1
 
     # embeddings projetados
     z_tr, aux_tr = model_embeddings(model, tr["emb"], device)
     z_va, aux_va = model_embeddings(model, va["emb"], device)
     z_te, aux_te = model_embeddings(model, te["emb"], device)
+    # score escalar de erro da cabeca auxiliar (binario: logit; multi-classe: 1-P(clean))
+    ae_tr, ae_va, ae_te = (_aux_err(aux_tr, multiclass), _aux_err(aux_va, multiclass),
+                           _aux_err(aux_te, multiclass))
 
-    # prototipos do cluster LIMPO (so train, label 0)
+    # ESTAGIO 1 — prototipos do cluster LIMPO (so train, label 0) -> gate "tem erro?"
     protos = fit_prototypes(z_tr[tr["label"] == 0], k=cfg.decision.k_prototypes, seed=cfg.seed)
     decider = PrototypeDecider(protos, threshold=0.0, target_precision=cfg.decision.target_precision)
-    sp_va, sp_te = decider.scores(z_va), decider.scores(z_te)
+    sp_tr, sp_va, sp_te = decider.scores(z_tr), decider.scores(z_va), decider.scores(z_te)
 
-    # fusao calibrada [score_proto, aux_logit] via LogReg na VAL (avaliada no test held-out)
+    # fusao calibrada [score_proto, aux_err] via LogReg na VAL (avaliada no test held-out)
     fus = LogisticRegression(max_iter=1000)
-    Xv = np.stack([sp_va, aux_va], axis=1)
+    Xv = np.stack([sp_va, ae_va], axis=1)
     fus.fit(Xv, va["label"])
     fused_va = fus.predict_proba(Xv)[:, 1]
-    fused_te = fus.predict_proba(np.stack([sp_te, aux_te], axis=1))[:, 1]
+    fused_te = fus.predict_proba(np.stack([sp_te, ae_te], axis=1))[:, 1]
+    fused_tr = fus.predict_proba(np.stack([sp_tr, ae_tr], axis=1))[:, 1]   # p/ metricas de TREINO
 
-    report: dict = {"n_test": int(len(te["label"])), "target_precision": cfg.decision.target_precision}
+    report: dict = {"n_test": int(len(te["label"])), "multiclass": bool(multiclass),
+                    "target_precision": cfg.decision.target_precision}
 
     # ---- 1) global: modelo vs baselines de confound ----
     def auroc_ap(y, s):
@@ -127,7 +151,7 @@ def evaluate(cfg, device: str | None = None) -> dict:
 
     glob = {
         "modelo_proto": auroc_ap(te["label"], sp_te),
-        "modelo_aux": auroc_ap(te["label"], aux_te),
+        "modelo_aux": auroc_ap(te["label"], ae_te),
         "modelo_fusao": auroc_ap(te["label"], fused_te),
     }
     # baseline confound-only (treina na train, testa no test)
@@ -181,11 +205,12 @@ def evaluate(cfg, device: str | None = None) -> dict:
     # ---- 3) deteccao SINTETICA livre de confound (clean-test vs synth-test) ----
     syn = load_embeddings(emb_dir / "test_synth.npz")
     z_syn, aux_syn = model_embeddings(model, syn["emb"], device)
+    ae_syn = _aux_err(aux_syn, multiclass)
     sp_syn = decider.scores(z_syn)
     clean_te = te["label"] == 0
     y_sy = np.concatenate([np.zeros(int(clean_te.sum())), np.ones(len(z_syn))])
     s_sy_proto = np.concatenate([sp_te[clean_te], sp_syn])
-    fused_syn = fus.predict_proba(np.stack([sp_syn, aux_syn], axis=1))[:, 1]
+    fused_syn = fus.predict_proba(np.stack([sp_syn, ae_syn], axis=1))[:, 1]
     s_sy_fus = np.concatenate([fused_te[clean_te], fused_syn])
     report["sintetico_livre_de_confound"] = {
         "n_clean": int(clean_te.sum()), "n_synth": int(len(z_syn)),
@@ -250,29 +275,84 @@ def evaluate(cfg, device: str | None = None) -> dict:
     report["ci95_global_auroc_fusao"] = grouped_bootstrap_ci(
         roc_auc_score, te["label"], fused_te, te["group"])
 
-    # ---- PONTO DE OPERACAO (objetivo do config) — metricas COMPLETAS p/ comparacao ----
+    # ---- PONTO DE OPERACAO (objetivo do config) — metricas COMPLETAS em TREINO e TESTE ----
+    # O limiar e' SEMPRE escolhido na VAL (calibracao) e aplicado em ambos. Reportar treino E
+    # teste mostra o gap (overfitting): metricas de treino sao in-sample (referencia), as de
+    # teste (held-out) sao as que valem.
     if cfg.decision.objective == "precision":
         op_thr, op_val = select_threshold_for_precision(fused_va, va["label"], cfg.decision.target_precision)
     else:  # f1 (balanceado) — padrao
         op_thr, op_val = select_threshold_max_f1(fused_va, va["label"])
-    pred = (fused_te > op_thr).astype(int)
+
+    def _op_metrics(y, fused, groups):
+        pred = (fused > op_thr).astype(int)
+        tp = int(((pred == 1) & (y == 1)).sum()); tn = int(((pred == 0) & (y == 0)).sum())
+        fp = int(((pred == 1) & (y == 0)).sum()); fn = int(((pred == 0) & (y == 1)).sum())
+        return {
+            "objetivo": cfg.decision.objective, "threshold": float(op_thr), "n": int(len(y)),
+            "acuracia": float(accuracy_score(y, pred)),
+            "balanced_accuracy": float(balanced_accuracy_score(y, pred)),
+            "precisao": float(tp / (tp + fp)) if tp + fp else 0.0,
+            "recall": float(tp / (tp + fn)) if tp + fn else 0.0,
+            "f1": float(f1_score(y, pred, zero_division=0)),
+            "auroc": float(roc_auc_score(y, fused)) if len(np.unique(y)) == 2 else float("nan"),
+            "ap": float(average_precision_score(y, fused)) if len(np.unique(y)) == 2 else float("nan"),
+            "confusao": {"TP": tp, "TN": tn, "FP": fp, "FN": fn},
+            "ci95_acuracia": grouped_bootstrap_ci(accuracy_score, y, pred, groups),
+        }
+
+    report["ponto_operacao"] = _op_metrics(te["label"], fused_te, te["group"])         # TESTE (held-out)
+    report["ponto_operacao_treino"] = _op_metrics(tr["label"], fused_tr, tr["group"])  # TREINO (in-sample)
     y = te["label"]
-    tp = int(((pred == 1) & (y == 1)).sum()); tn = int(((pred == 0) & (y == 0)).sum())
-    fp = int(((pred == 1) & (y == 0)).sum()); fn = int(((pred == 0) & (y == 1)).sum())
-    report["ponto_operacao"] = {
-        "objetivo": cfg.decision.objective, "threshold": float(op_thr),
-        "acuracia": float(accuracy_score(y, pred)),
-        "balanced_accuracy": float(balanced_accuracy_score(y, pred)),
-        "precisao": float(tp / (tp + fp)) if tp + fp else 0.0,
-        "recall": float(tp / (tp + fn)) if tp + fn else 0.0,
-        "f1": float(f1_score(y, pred, zero_division=0)),
-        "auroc": float(roc_auc_score(y, fused_te)),
-        "ap": float(average_precision_score(y, fused_te)),
-        "confusao": {"TP": tp, "TN": tn, "FP": fp, "FN": fn},
-        "ci95_acuracia": grouped_bootstrap_ci(accuracy_score, y, pred, te["group"]),
-    }
+    op = report["ponto_operacao"]
+    tp, tn, fp, fn = op["confusao"]["TP"], op["confusao"]["TN"], op["confusao"]["FP"], op["confusao"]["FN"]
+
+    # ---- ESTAGIO 2: clusterizacao por CATEGORIA (multi-cluster) — em TESTE e TREINO ----
+    cat_protos = cat_proto_ids = None
+    clean_id = CATEGORY_TO_ID[CLEAN_CATEGORY]
+    if multiclass:
+        cat_tr = _cat_ids(tr)
+        err_tr = cat_tr != clean_id
+        cat_protos, cat_proto_ids = fit_category_prototypes(
+            z_tr[err_tr], cat_tr[err_tr], k=cfg.decision.k_prototypes, seed=cfg.seed)
+        err_class_ids = sorted({int(c) for c in cat_proto_ids}) if cat_protos is not None else []
+
+        def _stage2(z_split, aux_split, cat_split):
+            err = cat_split != clean_id
+            if err.sum() == 0 or cat_protos is None:
+                return None
+            y_true = cat_split[err]
+            y_proto = assign_category(z_split[err], cat_protos, cat_proto_ids)            # clusterizacao
+            y_aux = np.array(err_class_ids)[aux_split[err][:, err_class_ids].argmax(axis=1)]  # aux head
+            present = sorted(set(y_true.tolist()) | set(y_proto.tolist()) | set(y_aux.tolist()))
+
+            def _m(yp):
+                f1c = f1_score(y_true, yp, labels=present, average=None, zero_division=0)
+                return {
+                    "accuracy": float(accuracy_score(y_true, yp)),
+                    "f1_macro": float(f1_score(y_true, yp, labels=present, average="macro", zero_division=0)),
+                    "f1_por_classe": {ID_TO_CATEGORY[i]: float(f) for i, f in zip(present, f1c)},
+                    "confusion_matrix": confusion_matrix(y_true, yp, labels=present).tolist(),
+                }
+            return {"n_erro": int(err.sum()), "classes": [ID_TO_CATEGORY[i] for i in present],
+                    "por_prototipo": _m(y_proto), "por_aux_head": _m(y_aux),
+                    "_y_true": y_true, "_y_proto": y_proto}
+
+        s2_te = _stage2(z_te, aux_te, _cat_ids(te))
+        s2_tr = _stage2(z_tr, aux_tr, cat_tr)
+        if s2_te:
+            report["estagio2_categoria"] = {k: v for k, v in s2_te.items() if not k.startswith("_")}
+            report["estagio2_categoria"]["nota"] = ("categoria atribuida SO a imagens de ERRO "
+                "(held-out). 'por_prototipo' = clusterizacao no espaco z (protótipo mais próximo).")
+            _confusion_plot_multiclass(rep_dir, s2_te["_y_true"], s2_te["_y_proto"],
+                                       s2_te["classes"], s2_te["por_prototipo"]["f1_macro"], suffix="")
+        if s2_tr:
+            report["estagio2_categoria_treino"] = {k: v for k, v in s2_tr.items() if not k.startswith("_")}
+            _confusion_plot_multiclass(rep_dir, s2_tr["_y_true"], s2_tr["_y_proto"],
+                                       s2_tr["classes"], s2_tr["por_prototipo"]["f1_macro"], suffix="_treino")
 
     # ---- decision bundle (para inferencia self-contained) ----
+    d = z_tr.shape[1]
     np.savez(
         Path(cfg.paths.models_dir) / "decision.npz",
         prototypes=protos,
@@ -283,8 +363,17 @@ def evaluate(cfg, device: str | None = None) -> dict:
         size=np.array([cfg.backbone.size]),
         preprocess=np.array([cfg.backbone.preprocess]),
         target_precision=np.array([cfg.decision.target_precision]),
+        multiclass=np.array([int(multiclass)]),
+        categories=np.array(CATEGORIES if multiclass else ["clean", "error"]),
+        cat_prototypes=(cat_protos if cat_protos is not None
+                        else np.zeros((0, d), dtype=np.float32)),
+        cat_proto_ids=(cat_proto_ids if cat_proto_ids is not None
+                       else np.zeros((0,), dtype=int)),
     )
-    _confusion_plot(rep_dir, tp, tn, fp, fn, report["ponto_operacao"])
+    _confusion_plot(rep_dir, tp, tn, fp, fn, report["ponto_operacao"], split_name="TEST", suffix="")
+    opt = report["ponto_operacao_treino"]; ct = opt["confusao"]
+    _confusion_plot(rep_dir, ct["TP"], ct["TN"], ct["FP"], ct["FN"], opt,
+                    split_name="TRAIN", suffix="_treino")
 
     # ---- plots ----
     _plots(rep_dir, te, sp_te, fused_te, va, fused_va, y_sy, s_sy_fus, thr_results)
@@ -294,7 +383,7 @@ def evaluate(cfg, device: str | None = None) -> dict:
     return report
 
 
-def _confusion_plot(rep_dir, tp, tn, fp, fn, op):
+def _confusion_plot(rep_dir, tp, tn, fp, fn, op, split_name="TEST", suffix=""):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -308,10 +397,30 @@ def _confusion_plot(rep_dir, tp, tn, fp, fn, op):
     ax.set_xticks([0, 1]); ax.set_xticklabels(["sem-erro", "erro"])
     ax.set_yticks([0, 1]); ax.set_yticklabels(["sem-erro", "erro"])
     ax.set_xlabel("predito"); ax.set_ylabel("real")
-    ax.set_title(f"Matriz de confusao (TEST, ponto balanceado)\n"
+    ax.set_title(f"Matriz de confusao ({split_name}, ponto balanceado)\n"
                  f"ACC={op['acuracia']:.2f}  Precisao={op['precisao']:.2f}  "
                  f"Recall={op['recall']:.2f}  F1={op['f1']:.2f}")
-    fig.tight_layout(); fig.savefig(rep_dir / "confusion_matrix.png", dpi=120); plt.close(fig)
+    fig.tight_layout(); fig.savefig(rep_dir / f"confusion_matrix{suffix}.png", dpi=120); plt.close(fig)
+
+
+def _confusion_plot_multiclass(rep_dir, y_true, y_pred, names, f1_macro, suffix=""):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as _np
+    cm = confusion_matrix(y_true, y_pred, labels=sorted(set(y_true.tolist()) | set(y_pred.tolist())))
+    n = len(names)
+    fig, ax = plt.subplots(figsize=(1.3 * n + 2, 1.3 * n + 1.5))
+    ax.imshow(cm, cmap="Blues")
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(j, i, cm[i, j], ha="center", va="center", fontsize=12,
+                    color="black" if cm[i, j] < cm.max() / 2 else "white")
+    ax.set_xticks(range(n)); ax.set_xticklabels(names, rotation=45, ha="right", fontsize=9)
+    ax.set_yticks(range(n)); ax.set_yticklabels(names, fontsize=9)
+    ax.set_xlabel("categoria predita (protótipo)"); ax.set_ylabel("categoria real")
+    ax.set_title(f"Estágio 2 — matriz de confusão por categoria (TEST)\nF1 macro = {f1_macro:.2f}")
+    fig.tight_layout(); fig.savefig(rep_dir / f"confusion_matrix_categoria{suffix}.png", dpi=120); plt.close(fig)
 
 
 def _plots(rep_dir, te, sp_te, fused_te, va, fused_va, y_sy, s_sy_fus, thr_results):
