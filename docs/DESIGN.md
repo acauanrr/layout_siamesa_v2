@@ -283,7 +283,13 @@ por patch** (37×37) sobreposto na tela. `python scripts/localize.py`.
   nas estatísticas — senão a área de cinza vaza o aspect-ratio (testado: com máscara, `pad`
   supera `resize`; sem máscara, reintroduz confound). Nunca padding **preto** (imita o erro
   "black region").
-- ❌ Não calibrar o limiar em dados sintéticos (data-snooping); limiar na validação real.
+- ⚠️ **Calibração do limiar/fusão (regra reconciliada na §11.2):** a proibição de *data-snooping*
+  é sobre o **TESTE** (trancado por `protocol.guard_path`), **nunca** sobre a validação. Calibrar
+  na **validação livre de confound** — limpas-val reais + `val_synth` (erros) + `val_reflow`
+  (limpas) — é **legítimo** (é o mesmo princípio do early-stop honesto) e **corrige** o ponto de
+  operação instável que vinha de calibrar em só 26 limpas reais. Reportamos sempre os **dois**
+  pontos (`real_val` legado vs `confound_free`) lado a lado. **Continua proibido:** calibrar em
+  qualquer derivado do teste (`test_synth`/`test_reflow`/`test.npz`).
 - ❌ Não fundir os ramos por `max`/OR (derruba precisão); usar fusão calibrada.
 - ❌ Não fazer fine-tune/LoRA do backbone com ~360 imagens.
 - ❌ Não reportar métrica **global** como headline (é ~98% confound).
@@ -437,3 +443,87 @@ data/processed/  (FONTE DA VERDADE — o que o modelo usa e o que se compartilha
   embeddings apontam para `data/processed/`** e as métricas ficam idênticas (mesmo dado, nova fonte).
 - O caminho **legado** (`extract_split` lendo `splits/*.csv`→`input/`) permanece em `features.py`
   para reprodutibilidade binária, mas não é o fluxo padrão.
+
+---
+
+## 11. Consolidação jun/2026 — técnicas portadas do projeto legado
+
+Estudamos o projeto anterior (`~/iats/layout_siamesa`, detector **pareado** train-synthetic/
+test-real) e portamos as três técnicas com **ganho comprovado** lá (no legado: reflow levou
+has-bug AUROC 0.62→0.80), adaptando-as ao cenário **one-class/single-image** do v2. Tudo
+**selecionado/calibrado só na validação**; teste avaliado **1×**.
+
+### 11.1 Reflow — negativos de layout legítimo (`reflow.py`)
+- **O quê:** variantes **LIMPAS** (label 0, `category=clean`) de mudança de layout legítima —
+  `scroll_shift`, `two_pane`, `ar_relayout`, `band_jitter` — injetadas nas limpas de treino
+  (`train_reflow.npz`, gerado por `make_synthetic.py`; entram em `train.assemble_training`).
+- **Por quê (tradução pareado→one-class):** o legado usava reflow no *target* de um par
+  negativo ("layout mudou ≠ bug"). No v2 não há par; o reflow vira **hard-negative** que
+  expande o cluster limpo. Ataca (i) o **falso-positivo estrutural** (DESIGN §2.2 — "tela
+  diferente ≠ tela errada") e (ii) o **confound de resolução pelo lado limpo**: `ar_relayout`
+  tira a limpa de 2076×2152, então a classe limpa deixa de ser monorresolução.
+- **Princípio de não-colisão (invariante):** reflow **MOVE/REESCALA** conteúdo; bug **MATA/
+  TRUNCA**. Validado **antes** de treinar por `scripts/audit_reflow.py` (sonda no DINO cru):
+  AUROC(limpo vs reflow) = **0.545** (~0.5, não colide); por operador 0.53–0.57 (nenhum >0.70).
+- **Resultado (honesto):** reduz o rastreamento absoluto do confound (falseab. resolução, val
+  0.755→0.617; teste 0.721→0.679) e sobe o sintético livre de confound (0.695→0.723), **mas**
+  custa especificidade/controlado-pela-fusão — é **trade-off**, não ganho gratuito (ver §11.4).
+  No held-out a falseabilidade ainda **não vence** o confound (prediz resolução 0.679 ≈ erro
+  0.681) — atenua, não elimina. `p_reflow_pos` (erro sobre reflow) fica **off** por padrão
+  (foi resultado **negativo** no legado).
+
+### 11.2 Calibração livre de confound (`evaluate.py`, `decision.calibrate_on`)
+- **Problema:** a fusão LogReg + limiar eram fixados na val real (≈26 limpas) → ponto de
+  operação **instável** que inundava o teste de falso-positivo (especificidade 0.12, FPR 0.88;
+  e o nested-CV confirmou ser sistêmico, especificidade OOF ~0.16).
+- **Solução (lição do legado: calibrar na val sintética):** `calibrate_on="confound_free"`
+  ajusta fusão+limiar em **limpas-val reais (0) + `val_synth` (1) + `val_reflow` (0)** — muitos
+  negativos limpos + positivos livres de confound → limiar **estável**.
+- **Reconciliação com §8 (data-snooping):** a regra anti-snooping é sobre o **TESTE**
+  (`protocol.guard_path`), não sobre a validação; `val_synth`/`val_reflow` vêm de
+  `processed/VAL` e já sustentam o early-stop honesto. **Verificado por revisão adversarial:**
+  a calibração usa caminhos `val_*` literais, **nunca** `test_*`, mesmo em `--final-test`.
+  Reportamos os **dois** pontos (`real_val` vs `confound_free`) em `calibracao_comparacao`.
+- **Resultado (o ganho mais forte e robusto):** especificidade held-out **0.122→0.268**
+  (FPR 0.88→0.73; bAcc 0.54→0.57), sem perder F1. **Prova de causalidade:** no mesmo modelo,
+  `real_val` dá especificidade **0.000** (TN=0 — sinaliza toda limpa como erro) vs `0.268` do
+  `confound_free`. Na val o salto é 0.00–0.35 → 0.46–0.77.
+
+### 11.3 Estágio 2 consolidado (`evaluate.py`, `decision.stage2_method`, `manifest` grossa)
+- **Antes:** reportava **dois** decisores em paralelo (protótipo F1 0.39 **e** aux head 0.38)
+  — fonte da confusão.
+- **Agora:** **um** decisor canônico (`stage2_method="prototype"` — mesma matemática do gate,
+  `1−cos` ao protótipo de categoria); a cabeça aux vira **diagnóstico**. Avaliação **condicional
+  ao gate E1** (só erros que o E1 sinalizou = produção) **e** oráculo (todos os erros).
+- **Taxonomia grossa primária** (3 super-classes por não-colisão, `manifest.FINE_TO_COARSE`):
+  `dead_region` (black_bars+empty_space) · `displaced_content` (overlay+disordered) ·
+  `geometry` (distortion+orientation — junta as 2 raras). A fina de 6 vira **secundária**.
+- **Honestidade (achado da revisão):** o F1-macro 0.39(fino)→**0.62**(grosso) é em grande parte
+  efeito de **agregar 6→3 classes** (tarefa mais fácil) sobre as **mesmas** predições — é ganho
+  de **clareza + reportabilidade + poder estatístico**, **não** de qualidade do modelo. E o
+  **IC95 [0.375, 0.765]** tem limite inferior **perto do acaso** (0.333 p/ 3 classes) — reportar
+  sempre com o IC. O teto estrutural da taxonomia fina (§10.5) **permanece**.
+
+### 11.4 Ablação (na VALIDAÇÃO; teste não tocado) e configs prontos
+| treino (val) | sintético | controlado | falseab. resolução↓ | especificidade (calib. livre conf.) |
+|---|---|---|---|---|
+| sem-reflow | 0.771 | 0.787 | 0.755 | 0.769 |
+| com-reflow | 0.768 | 0.733 | **0.617** | 0.462 |
+
+- A **calibração** é o ganho robusto (com ou sem reflow). O **reflow** troca especificidade por
+  **menos rastreamento do confound** (a tese "detecta conteúdo, não device").
+- **Configs:** `configs/ablation_noreflow.yaml` (isola o reflow); `configs/robust_synthonly.yaml`
+  (`use_real_errors=false` — detector **agnóstico de device**: os erros reais são o que puxa o
+  modelo de volta ao confound; removê-los dá a alegação de robustez do §7, ao custo de cobrir só
+  tipos sintetizáveis).
+- **`benign_augment`** (round-trip de resolução + jitter foto-metrico nas limpas) disponível
+  (`synthetic.benign_augment`), off por padrão — remove o atalho secundário de nitidez (47 erros
+  reais são fotos).
+
+### 11.5 O que NÃO foi portado (e por quê)
+- **Termo LOCAL / |patch_diff| pareado:** no v2 não há par; o substituto (PatchCore) já existe
+  em `localize.py` mas DESIGN §7b mediu que **não** classifica (preto é legítimo em limpas).
+- **Geradores sintéticos para distortion/orientation:** colidiriam com `ar_relayout` (mudança
+  de AR é **negativo/clean** no reflow) — risco de rótulo contraditório. Adiado.
+- **Diversidade por época:** o v2 cacheia embeddings (backbone congelado), então o pool é fixo;
+  mitigado com mais variantes upfront (`n_reflow_variants`), não regeneração por época.

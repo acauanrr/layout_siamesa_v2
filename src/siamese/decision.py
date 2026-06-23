@@ -98,6 +98,46 @@ def select_threshold_max_f1(scores: np.ndarray, labels: np.ndarray) -> tuple[flo
                                "val_recall": float(rec)}
 
 
+def select_threshold_for_specificity(
+    scores: np.ndarray, labels: np.ndarray, target_specificity: float = 0.80,
+) -> tuple[float, dict]:
+    """MAIOR recall cuja ESPECIFICIDADE (TN/(TN+FP)) no conjunto de calibracao >= alvo.
+
+    O gerente quer POUCOS falso-alarmes: fixamos especificidade-alvo e maximizamos o recall
+    sob essa restricao. Varre cada score como ponto de corte (preve erro se score > thr).
+    Se nenhum atinge o alvo, devolve o de maior especificidade. (Complementa o best-F1 e o
+    precision-target; util quando os negativos sao confiaveis — ex.: calibracao livre de
+    confound com muitas limpas/reflow.)"""
+    order = np.argsort(-scores)
+    s_sorted = scores[order]
+    y_sorted = labels[order]
+    P = int(labels.sum())
+    N = int((labels == 0).sum())
+    best = None       # (recall, thr, specificity)
+    best_spec = None  # fallback: (specificity, recall, thr)
+    tp = fp = 0
+    for i in range(len(s_sorted)):
+        if y_sorted[i] == 1:
+            tp += 1
+        else:
+            fp += 1
+        if i + 1 < len(s_sorted) and s_sorted[i + 1] == s_sorted[i]:
+            continue
+        recall = tp / P if P else 0.0
+        spec = (N - fp) / N if N else 1.0
+        if best_spec is None or spec > best_spec[0]:
+            best_spec = (spec, recall, s_sorted[i])
+        if spec >= target_specificity and (best is None or recall > best[0]):
+            best = (recall, s_sorted[i], spec)
+    if best is None:
+        spec, recall, thr = best_spec
+        return float(thr - 1e-9), {"val_recall": float(recall), "val_specificity": float(spec),
+                                   "target_specificity": float(target_specificity)}
+    recall, thr, spec = best
+    return float(thr - 1e-9), {"val_recall": float(recall), "val_specificity": float(spec),
+                               "target_specificity": float(target_specificity)}
+
+
 def select_threshold_for_precision(
     scores: np.ndarray, labels: np.ndarray, target_precision: float = 0.95,
 ) -> tuple[float, dict]:

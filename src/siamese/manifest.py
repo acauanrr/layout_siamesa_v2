@@ -45,6 +45,47 @@ CLEAN_ID = CATEGORY_TO_ID[CLEAN_CATEGORY]   # 0
 ABSTAIN_ID = -1                              # sentinela de abstencao (categoria fora do escopo)
 
 
+# --- Taxonomia GROSSA (3 super-classes) -------------------------------------
+# DESIGN §10.5: as 6 categorias finas tem teto de separabilidade ~F1 0.2 nas features DINOv2
+# (semanticamente sobrepostas + rotulo single-label p/ erros que coocorrem + classes raras
+# orientation=7/distortion=13). A taxonomia grossa agrupa por NAO-COLISAO (o principio do
+# legado) e tem PODER ESTATISTICO -> e' a avaliacao PRIMARIA do Estagio 2; a fina vira
+# secundaria/exploratoria. Mapa REVERSIVEL (fino -> grosso):
+#   dead_region      : conteudo morto/ausente (regiao preta/vazia)
+#   displaced_content: elementos deslocados/sobrepostos
+#   geometry         : geometria global errada (distorcao/orientacao) — junta as 2 raras
+FINE_TO_COARSE = {
+    "black_bars": "dead_region",
+    "empty_space": "dead_region",
+    "overlay": "displaced_content",
+    "disordered_layout": "displaced_content",
+    "distortion": "geometry",
+    "orientation": "geometry",
+}
+COARSE_CATEGORIES = [CLEAN_CATEGORY] + sorted(set(FINE_TO_COARSE.values()))
+COARSE_TO_ID = {c: i for i, c in enumerate(COARSE_CATEGORIES)}
+ID_TO_COARSE = {i: c for c, i in COARSE_TO_ID.items()}
+
+
+def coarse_of(cat: str) -> str:
+    """Slug fino -> slug grosso. 'clean'/'' -> 'clean'."""
+    c = (cat or "").strip().lower()
+    if c in ("", CLEAN_CATEGORY):
+        return CLEAN_CATEGORY
+    return FINE_TO_COARSE.get(c, c)
+
+
+def coarse_id(cat: str, *, strict: bool = True) -> int:
+    """id na taxonomia GROSSA a partir de um slug FINO (ou ja grosso). Mesma politica
+    anti-silenciamento de category_id (desconhecido levanta em strict)."""
+    coarse = coarse_of(cat)
+    if coarse in COARSE_TO_ID:
+        return COARSE_TO_ID[coarse]
+    if strict:
+        raise KeyError(f"categoria fora do escopo (grosso): {cat!r}")
+    return ABSTAIN_ID
+
+
 def category_id(cat: str, *, strict: bool = True) -> int:
     """Mapa CANONICO categoria->id (Fase 6, 'tratamento de escopo'). 'clean'/'' -> 0; slug de
     erro conhecido -> seu id. Categoria de ERRO DESCONHECIDA: strict=True (padrao) levanta

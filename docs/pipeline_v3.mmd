@@ -1,0 +1,96 @@
+graph TD
+    %% =====================================================================
+    %% FOCUSED VIEW — feature extraction → siamese head → two-stage decision
+    %% (zoom into stages 4–6 of pipeline_v2.mmd)
+    %% =====================================================================
+
+    %% ---------- A · FEATURE EXTRACTION (frozen, cached once) ----------
+    subgraph FEAT["A · Feature extraction — frozen backbone, cached once"]
+        direction TB
+        IMG["Input image (screenshot/photo, RGB)"]
+        PAD["Preprocess (geometry.py)<br/>gray-pad to square → resize 518×518<br/>fill = ImageNet mean (124,116,104)<br/>+ content_patch_mask (marks padding patches)"]
+        DINO["DINOv2 ViT-S/14 ❄ FROZEN<br/>0 trainable params · 37×37 = 1369 patch tokens (14px)"]
+        POOL["Base feature vector — 1152-d<br/>CLS (384) ⊕ masked mean (384) ⊕ masked std (384)<br/>patch stats over CONTENT patches only (ignores gray pad)"]
+        CACHE[("artifacts/embeddings/*.npz<br/>cached — extracted ONCE (backbone is frozen)")]
+        IMG --> PAD --> DINO --> POOL --> CACHE
+    end
+
+    %% ---------- B · SIAMESE PROJECTION HEAD g(·) (trainable) ----------
+    subgraph HEADNET["B · Siamese projection head g(·) — 🎯 only trainable part (~330k)"]
+        direction TB
+        LN["LayerNorm(1152)"]
+        L1["Linear 1152 → 256"]
+        ACT["GELU → Dropout(p=0.3)"]
+        L2L["Linear 256 → 128"]
+        Z["z ∈ ℝ¹²⁸ — L2-normalized<br/>(point on the unit hypersphere)"]
+        AUX["aux head: Linear 128 → 7<br/>softmax over {clean + 6 error categories}"]
+        LN --> L1 --> ACT --> L2L --> Z
+        Z --> AUX
+    end
+    CACHE -->|"1152-d (shared g for any image)"| LN
+
+    %% ---------- C · TRAINING OBJECTIVE (train only) ----------
+    subgraph TRAIN["C · Training objective — train only"]
+        direction TB
+        SUP["SupCon(z, y, τ=0.05)<br/>same category attracts · other categories repel<br/>(clean + reflow share the clean cluster)"]
+        CE["CrossEntropy(aux, y)<br/>7-class auxiliary regularizer"]
+        LOSS["Total loss<br/>L = SupCon(z) + 0.6 · CE(aux)"]
+        ES["model selection / early-stop<br/>on val_synth_gate (confound-free)"]
+        Z --> SUP --> LOSS
+        AUX --> CE --> LOSS
+        LOSS --> ES
+    end
+
+    %% ---------- D · PROTOTYPES (fit on TRAIN z) ----------
+    subgraph PROTO["D · Prototypes — fit on TRAIN z (k-means)"]
+        direction TB
+        PC["Clean prototype(s)<br/>k-means (k=3) over clean-class z"]
+        CPC["Category prototypes<br/>k-means per error category (k≤3)"]
+    end
+    Z -.->|"clean train z"| PC
+    Z -.->|"error train z"| CPC
+
+    %% ---------- E · TWO-STAGE DECISION (inference) ----------
+    subgraph DEC["E · Two-stage decision — inference"]
+        direction TB
+        SPROTO["score_proto = 1 − max cos(z, clean prototype)<br/>(distance to 'normal')"]
+        AERR["aux_err = 1 − P(clean)<br/>(direct detector head)"]
+        FUS["Fusion: LogReg over [score_proto, aux_err]<br/>calibrated on CONFOUND-FREE val<br/>(val clean + val_synth + val_reflow) → p(error)"]
+        G1{"Stage 1 · GATE<br/>p(error) ≥ threshold ?<br/>(threshold fixed on the same confound-free val)"}
+        G2["Stage 2 · CATEGORY (only if error)<br/>argmax cos(z, category prototype)<br/>fine 6 → coarse 3 super-classes"]
+        OUT["Output per image<br/>error? · p(error) · category"]
+        SPROTO --> FUS
+        AERR --> FUS
+        FUS --> G1
+        G1 -->|"yes → error"| G2 --> OUT
+        G1 -->|"no → clean"| OUT
+    end
+    Z --> SPROTO
+    AUX --> AERR
+    PC -. "nearest clean prototype" .-> SPROTO
+    CPC -. "nearest category prototype" .-> G2
+
+    %% ===================== STYLES =====================
+    classDef proc     fill:#E0F2F1,stroke:#00695C,color:#004D40;
+    classDef frozen   fill:#ECEFF1,stroke:#455A64,color:#263238;
+    classDef store    fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20;
+    classDef head     fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C;
+    classDef loss     fill:#F1F8E9,stroke:#558B2F,color:#33691E;
+    classDef proto    fill:#FFF3E0,stroke:#E65100,color:#BF360C;
+    classDef decision fill:#FCE4EC,stroke:#AD1457,color:#880E4F;
+    classDef out      fill:#FFFDE7,stroke:#F9A825,color:#F57F17;
+
+    class IMG,PAD,POOL proc;
+    class DINO frozen;
+    class CACHE store;
+    class LN,L1,ACT,L2L,Z,AUX head;
+    class SUP,CE,LOSS,ES loss;
+    class PC,CPC proto;
+    class SPROTO,AERR,FUS,G1,G2 decision;
+    class OUT out;
+
+    style FEAT fill:#F2FBFA,stroke:#80CBC4,color:#00695C
+    style HEADNET fill:#FAF4FD,stroke:#CE93D8,color:#6A1B9A
+    style TRAIN fill:#F7FBF0,stroke:#AED581,color:#558B2F
+    style PROTO fill:#FFF8F0,stroke:#FFB74D,color:#E65100
+    style DEC fill:#FDF1F5,stroke:#F48FB1,color:#AD1457

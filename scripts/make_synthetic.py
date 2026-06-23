@@ -22,7 +22,7 @@ import torch
 
 from siamese.config import Config
 from siamese.backbone import DinoV2Backbone, BackboneConfig
-from siamese.synth_features import extract_synthetic
+from siamese.synth_features import extract_synthetic, extract_reflow_clean
 
 _EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 
@@ -52,7 +52,9 @@ def main() -> None:
                           preprocess=cfg.backbone.preprocess, device=device)
     backbone = DinoV2Backbone(bcfg)
 
-    # sonda livre de confound: erros injetados nas limpas held-out de val/test (mesma
+    emb_dir = Path(cfg.paths.emb_dir)
+
+    # sonda livre de confound (ERROS): erros injetados nas limpas held-out de val/test (mesma
     # resolucao/device). Seeds distintos por split p/ reprodutibilidade.
     for split, seed in [("val", cfg.synthetic.seed + 100), ("test", cfg.synthetic.seed + 200)]:
         rows = _clean_rows(args.processed, split)
@@ -60,13 +62,36 @@ def main() -> None:
             print(f"  (pulando {split}: sem limpas em {args.processed}/{split}/real/clean)")
             continue
         info = extract_synthetic(
-            None, Path(cfg.paths.emb_dir) / f"{split}_synth.npz", backbone,
+            None, emb_dir / f"{split}_synth.npz", backbone,
             n_variants=cfg.synthetic.n_variants,
             max_errors_per_image=cfg.synthetic.max_errors_per_image,
             seed=seed, batch_size=cfg.backbone.batch_size,
             multiclass=cfg.train.multiclass, clean_rows=rows,
         )
         print(f"  {split}: sonda sintetica {info['n']} -> {info['out']} (de processed/{split}/real/clean)")
+
+    # REFLOW-CLEAN (variantes LIMPAS de layout legitimo). train_reflow -> entra no TREINO como
+    # negativos; val_reflow/test_reflow -> sondas de FALSO-POSITIVO (o gate NAO deve acender em
+    # reflow). Anti-confound pelo lado limpo (ar_relayout tira a limpa de 2076x2152). Ver reflow.py.
+    if cfg.synthetic.reflow_clean:
+        for split, seed in [("train", cfg.synthetic.seed + 300),
+                            ("val", cfg.synthetic.seed + 400),
+                            ("test", cfg.synthetic.seed + 500)]:
+            rows = _clean_rows(args.processed, split)
+            if not rows:
+                print(f"  (pulando reflow {split}: sem limpas em {args.processed}/{split}/real/clean)")
+                continue
+            info = extract_reflow_clean(
+                emb_dir / f"{split}_reflow.npz", backbone, rows,
+                n_variants=cfg.synthetic.n_reflow_variants,
+                reflow_ops=cfg.synthetic.reflow_ops,
+                max_reflow_ops=cfg.synthetic.max_reflow_ops,
+                benign=cfg.synthetic.benign_augment,
+                seed=seed, batch_size=cfg.backbone.batch_size,
+            )
+            print(f"  {split}: reflow-clean {info['n']} -> {info['out']} (de processed/{split}/real/clean)")
+    else:
+        print("  (reflow_clean=false -> nao gera *_reflow.npz)")
 
 
 if __name__ == "__main__":

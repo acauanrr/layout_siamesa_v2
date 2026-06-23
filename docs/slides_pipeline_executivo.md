@@ -42,15 +42,21 @@ section.lead { text-align: center; }
 
 <br>
 
-**Classificação binária:** a tela **tem erro** de layout ou **não tem**?
+**Decisão em dois estágios:** a tela **tem erro** de layout? → **de que tipo** é o erro?
 
-<span class="muted">Apresentação do pipeline · 5 etapas até a decisão</span>
+<span class="muted">Apresentação do pipeline · 5 etapas até a decisão · números **jun/2026** (held-out honesto)</span>
+
+<br>
+
+<span class="muted" style="font-size:0.7em">⚠️ Versão jun/2026 — corrige números REVOGADOS (acc 0.85 / AUROC 0.90 / "test 54": inválidos por vazamento + seleção que via o teste, auditoria Fase 0). Números abaixo = held-out honesto, teste trancado, 1×. Fonte: <code>RELATORIO_APRESENTACAO.md</code>.</span>
 
 <!--
-🎤 Fala (abertura, 15s): "Esse pipeline recebe o print de uma tela e responde uma
-pergunta binária: tem erro de layout ou não? O desafio não foi a rede em si — foi
-garantir que ela aprendesse a reconhecer o ERRO, e não características do APARELHO que
-vazam nos dados. Vou percorrer as 5 etapas até a decisão final."
+🎤 Fala (abertura, 15s): "Esse pipeline recebe o print de uma tela e decide em DOIS
+estágios: primeiro um gate — tem erro de layout ou não? — e, quando tem, de que tipo é o
+erro. O desafio não foi a rede em si — foi garantir que ela aprendesse a reconhecer o ERRO,
+e não características do APARELHO que vazam nos dados. Vou percorrer as etapas até a decisão.
+AVISO: esta versão corrige números antigos REVOGADOS (acc 0.85 / AUROC 0.90 / test 54 imgs),
+que vinham de split com vazamento. Os de hoje são o held-out honesto, teste trancado, 1×."
 -->
 
 ---
@@ -70,10 +76,11 @@ Todo o pipeline existe para responder uma coisa:
 <br>
 
 - As telas **limpas** vieram **todas de um único aparelho** (resolução 2076×2152).
-- As telas **com erro** são variadas (74 resoluções, fotos, dobráveis).
-- Uma regra boba — *"resolução ≠ padrão ⇒ erro"* — já acerta **~98%** **sem olhar o layout**.
+- As telas **com erro** são variadas (resoluções diversas, fotos, dobráveis).
+- A regra trivial — *"resolução ≠ 2076×2152 ⇒ erro"* — dá **AUROC 0.99** **sem olhar o layout** → a métrica **global** é ~98% **trapaça**.
 
 > Cada etapa adiante força o modelo a olhar o **conteúdo do erro**, não o **aparelho**.
+> Honestidade: o confound foi **atenuado, não vencido** — o teto do gate é de **DADO**.
 
 <!--
 🎤 Fala: "Existe uma armadilha nos dados: como as telas limpas vieram todas do mesmo
@@ -116,13 +123,14 @@ Importante separar duas fases — preparar o modelo (etapas 1 e 2, uma vez) e us
 
 | Fonte | Quantidade | Característica |
 |---|---|---|
-| Telas **LIMPAS** reais | 172 | **um único device** · todas 2076×2152 |
-| Telas **COM ERRO** reais | 188 | 74 resoluções · fotos · fold/laptop/tent |
+| Telas **LIMPAS** reais | 172 | **um único device** · todas 2076×2152 (o **confound**) |
+| Telas **COM ERRO** reais | 369 | 6 categorias · resoluções diversas · fotos · fold/laptop/tent |
 
 <br>
 
-- **A assimetria é o problema central** (tratado na etapa 2).
-- Split **agrupado por ticket** (IKSWW): imagens do mesmo bug nunca cruzam treino/teste → **0 vazamento**. *(treino 252 · val 54 · test 54)*
+- **541 imagens reais únicas.** A assimetria é o problema central (tratado na etapa 2).
+- Split **agrupado por ticket + sessão**, estratificado por categoria → **0 vazamento** (`tests/test_split_isolation.py`). *(train **330**: 105+225 · val **81**: 26+55 · test **130**: 41+89)*
+- Augmentação de treino (não é dado real): **+420 sintéticos-erro + +420 limpas-reflow**.
 
 <!--
 🎤 Fala: "Duas fontes. Repare na assimetria: as limpas são todas do mesmo aparelho; as com
@@ -133,27 +141,34 @@ vazar imagens do mesmo bug entre treino e teste."
 
 ---
 
-## 🧪 Etapa 2 — Sintéticos (anti-confound)
+## 🧪 Etapa 2 — Anti-confound dos DOIS lados
 
 > **A etapa mais importante — o diferencial do trabalho.**
 
-Injetamos erros **artificiais** nas próprias telas **limpas**, na **mesma resolução / aparelho**.
-→ o par (limpa, corrompida) difere **só pelo erro**; todo o resto fica constante.
+Atacamos o confound pelos **dois lados**:
 
-| Tipo sintético | Simula |
+- **Lado do ERRO:** injetamos erros **artificiais** nas próprias telas **limpas**, na **mesma
+  resolução / aparelho** → o par difere **só pelo erro**.
+- **Lado do LIMPO (REFLOW — novo):** variantes **limpas** de layout legítimo (scroll,
+  dual-pane, outro aspect-ratio, espaçamento), algumas em **outras resoluções** → a classe
+  limpa deixa de ser só 2076×2152.
+
+| `black_region` · `empty_space` · `overlay` · `disorder` · `cropped` (erro) | `reflow` (limpo) |
 |---|---|
-| `black_region` · `empty_space` | faixa preta · região apagada |
-| `overlay` · `disorder` · `cropped` | sobreposição · desalinhamento · corte |
+| faixa preta · região apagada · sobreposição · desalinho · corte | mesmo conteúdo, layout diferente = **ainda limpo** |
 
-**Resultado medido:** treinar só com erros reais faz o modelo prever a *resolução* tão bem
-quanto o erro (trapaça). Sintéticos quebram isso.
+**Resultado medido (honesto):** o reflow **reduz** o rastreamento do confound (na validação,
+prever resolução **0.62** < prever erro **0.65**), mas no **held-out** o gap fica ~0 → confound
+**atenuado, não vencido**.
 
 <!--
-🎤 Fala: "Para tirar a trapaça, pego a tela limpa e estrago ela mesma, mantendo resolução e
-device idênticos. Agora a única diferença entre as duas é o erro — o modelo é obrigado a
-aprender o erro. São 5 tipos espelhando as categorias reais. E isso foi medido: sem
-sintético o modelo aprende a resolução; com sintético ele aprende conteúdo."
-💡 Analogia: em vez de comparar maçã de uma fazenda com laranja de outra, estrago a MESMA maçã.
+🎤 Fala: "Para tirar a trapaça, ataco pelos DOIS lados. Lado do erro: pego a tela limpa e
+estrago ela mesma, mantendo resolução e device idênticos — a única diferença é o erro. Lado
+do limpo, a novidade desta rodada, o reflow: mostro variantes LIMPAS de layout legítimo,
+algumas em outras resoluções, rotuladas como limpas — assim a classe limpa não é mais só um
+device. Honestidade: isso ATENUA o confound, não vence. No held-out o gap volta a ~0; vencer
+depende de DADO (telas limpas diversas), não de tuning."
+💡 Analogia: estrago a MESMA maçã (lado erro) e mostro a maçã sã em vários ângulos (reflow).
 -->
 
 ---
@@ -174,8 +189,9 @@ sintético o modelo aprende a resolução; com sintético ele aprende conteúdo.
 em vez de esticar. Depois o DINOv2, um modelo de visão pré-treinado em 142 milhões de
 imagens, que está CONGELADO: ele não aprende nada do nosso problema, é só um extrator. A
 saída é um vetor de 1152 dimensões."
-🛡️ Se perguntarem por que congelar: 360 imagens + 22M params = overfit imediato; ele decoraria
-o confound. O desvio-padrão dos patches captura faixa preta / espaço vazio (regiões uniformes).
+🛡️ Se perguntarem por que congelar: poucas centenas de imagens reais + 22M params = overfit
+imediato; ele decoraria o confound. O desvio-padrão dos patches captura faixa preta / espaço
+vazio (regiões uniformes).
 💡 Analogia: o DINOv2 é um olho especialista já formado; não reeducamos o olho.
 -->
 
@@ -208,44 +224,51 @@ apps diferentes são legitimamente diferentes — comparamos contra protótipos 
 
 | Saída | O que é | Para quê |
 |---|---|---|
-| Cabeça de **projeção** | produz `z` (128-d) | o coração métrico (siamês) |
-| Cabeça **auxiliar** | `Linear(128→1)` | detector binário **direto**, sem depender de referências |
+| Cabeça de **projeção** | produz `z` (128-d) | o coração métrico (siamês) · **decisor canônico** |
+| Cabeça **auxiliar** | `Linear(128→7)` softmax (clean + 6 cat.) | classificador direto; gate lê `P(erro)=1−P(clean)` · **diagnóstico** |
 
 **Função de perda (treino):**
 
-$$\mathcal{L} = \text{SupCon}(z) + 0.3 \cdot \text{BCE}(\text{auxiliar})$$
+$$\mathcal{L} = \text{SupCon}(z) + 0.6 \cdot \text{CE}(\text{aux 7 classes})$$
 
-- **SupCon** (Supervised Contrastive): aproxima a mesma classe, afasta classes diferentes.
+- **SupCon** (Supervised Contrastive): aproxima a mesma classe, afasta classes diferentes
+  (limpas reais **e** limpas-reflow no mesmo cluster).
 - Generalização em lote da ideia âncora/positivo/negativo — **não** Triplet clássica.
 
 <!--
-🎤 Fala: "Na verdade são duas saídas: a projeção, que dá o vetor z, e uma cabeça auxiliar,
-um classificador binário direto. A perda combina a SupCon — que organiza o espaço — com um
-termo da auxiliar. SupCon é a versão em lote da ideia de âncora/positivo/negativo; cada
-amostra do batch é âncora, mesma classe é positivo, classe diferente é negativo."
+🎤 Fala: "São duas saídas: a projeção, que dá o vetor z (o decisor canônico), e uma cabeça
+auxiliar multi-classe — clean + 6 categorias — de onde o gate lê P(erro)=1−P(clean); ela é
+diagnóstico, não o decisor. A perda combina a SupCon, que organiza o espaço, com um termo CE
+da auxiliar (peso 0.6). As classes auxiliares também regularizam: gate binário-puro satura o
+sintético e não transfere. SupCon é a versão em lote de âncora/positivo/negativo."
 🛡️ Se perguntarem 'usaram Triplet?': não a clássica; SupCon, mais estável com pouco dado.
 -->
 
 ---
 
-## ⚖️ Etapa 5 — Decisão One-Class
+## ⚖️ Etapa 5 — Decisão em DOIS estágios
 
-Com o espaço organizado, a decisão é **geométrica**:
+Com o espaço organizado, a decisão é **geométrica** — a mesma ideia (distância a protótipos no espaço `z`) para os dois estágios:
 
-1. **Protótipo** do cluster limpo = o **centro do que é normal**.
-2. **Distância cosseno** da tela nova ao protótipo: `score = 1 − cos(z, protótipo)`.
-   *(perto = saudável · longe = suspeita)*
-3. A distância vira uma **probabilidade de erro** `p(erro)` ∈ [0, 1].
-4. **Limiar:** `p(erro) > limiar` → ❌ erro ; senão → ✅ limpa.
+**Estágio 1 — gate "tem erro?"** *(decisor canônico = protótipo)*
+1. **Protótipo** do cluster limpo = o **centro do que é normal** (k-means).
+2. **Distância cosseno:** `score = 1 − cos(z, protótipo)`. *(perto = saudável · longe = suspeita)*
+3. Vira **probabilidade** `p(erro)` ∈ [0,1] — **calibrada na VALIDAÇÃO LIVRE DE CONFOUND**.
+4. **Limiar** (specificity-first): `p(erro) > limiar` → ❌ erro ; senão → ✅ limpa.
 
-> 💡 *"Definimos o centro do bairro das telas saudáveis e medimos a que distância a tela nova
-> está dele. O limiar é o raio da cerca."*
+**Estágio 2 — categoria** *(só se o gate = erro)*
+- **Um** método: o **protótipo de categoria** mais próximo — **mesma matemática `1 − cos`**.
+- Taxonomia primária = **3 super-classes**: região morta · deslocado · geometria.
+
+> 💡 *"Mede a distância da tela ao centro do normal (gate); se suspeita, vê de que bairro-de-problema está mais perto (categoria)."*
 
 <!--
-🎤 Fala: "A decisão é geométrica. Resumimos as telas limpas num protótipo — o centro do
-normal. Para uma tela nova, medimos a distância cosseno até esse centro. Quanto mais longe,
-mais provável o erro. Essa distância vira uma probabilidade, e se passar de um limiar,
-marcamos erro. O detalhe de como a distância vira probabilidade vem no próximo slide."
+🎤 Fala: "A decisão é geométrica e tem DOIS estágios, com a mesma ideia: distância a
+protótipos. Estágio 1, o gate: resumimos as limpas num protótipo, medimos a distância cosseno,
+viramos probabilidade — agora CALIBRADA na validação livre de confound, não em 26 limpas — e
+cortamos num limiar specificity-first. Estágio 2, só se o gate diz erro: a mesma matemática,
+mas vendo de qual protótipo de CATEGORIA a tela está mais perto. Consolidamos para UM método
+(antes eram dois em paralelo) e taxonomia grossa de 3 super-classes."
 -->
 
 ---
@@ -256,16 +279,16 @@ marcamos erro. O detalhe de como a distância vira probabilidade vem no próximo
 
 | Pergunta | Resposta |
 |---|---|
-| **É por uma distância?** | **Sim** — distância cosseno ao protótipo do "normal". |
+| **É por uma distância?** | **Sim** — distância cosseno ao protótipo do "normal" (decisor canônico). |
 | **Qual o cálculo?** | `score = 1 − cos(z, protótipo)` → `p(erro) = sigmoid(...)` → corte em `p(erro)`. |
-| **É algoritmo de ML?** | **Sim, três:** k-means (protótipo) + **regressão logística** (calibra) + otimização do limiar. |
-| **Como escolhem o limiar?** | **Na validação**, por otimização: F1 máximo (padrão) **ou** precisão-alvo (modo alta-precisão). |
+| **É algoritmo de ML?** | **Sim, três:** k-means (protótipo) + **fusão logística** (calibra) + escolha do limiar. |
+| **Como escolhem o limiar?** | **Na validação LIVRE DE CONFOUND** (limpas + sintéticos + reflow), specificity-first — nunca no teste. |
 
 <!--
 🎤 Fala (a pergunta que a equipe fez): "É por distância? Sim, o núcleo é a distância cosseno
-ao protótipo. Mas não corto a distância direto — ela vira uma probabilidade calibrada. Tem
-ML: k-means pro protótipo, regressão logística pra calibrar, e o limiar é escolhido por
-otimização na validação, nunca no teste. Não é um número chutado."
+ao protótipo — o decisor canônico. Não corto a distância direto: ela vira uma probabilidade
+calibrada. Tem ML: k-means pro protótipo, fusão logística pra calibrar, e o limiar é escolhido
+na validação LIVRE DE CONFOUND (não em 26 limpas), nunca no teste. Não é número chutado."
 -->
 
 ---
@@ -277,24 +300,27 @@ otimização na validação, nunca no teste. Não é um número chutado."
                          │
    ┌─────────────────────┴─────────────────────┐
    ▼                                            ▼
-(A) DISTÂNCIA ao protótipo limpo          (B) CABEÇA AUXILIAR
-    score = 1 − cos(z, protótipo)             aux = w·z + b
+(A) DISTÂNCIA ao protótipo limpo          (B) CABEÇA AUXILIAR (7 classes)
+    score = 1 − cos(z, protótipo)             P(erro) = 1 − P(clean)
+    ← DECISOR CANÔNICO                        (diagnóstico)
    └─────────────────────┬─────────────────────┘
                          ▼
-   (C) FUSÃO  (Regressão Logística, ajustada na VALIDAÇÃO)
-       p(erro) = sigmoid( c₀·score + c₁·aux + b₀ )      ∈ [0,1]
+   (C) FUSÃO  calibrada na VALIDAÇÃO LIVRE DE CONFOUND
+       (limpas + sintéticos-erro + reflow — NÃO em 26 limpas)
+       p(erro) = sigmoid( c₀·score + c₁·P(erro)_aux + b₀ )   ∈ [0,1]
                          ▼
-   (D) LIMIAR  → "ERRO" se p(erro) > limiar, senão "LIMPA"
+   (D) LIMIAR (specificity-first) → "ERRO" se p(erro) > limiar, senão "LIMPA"
 ```
 
 **Por que 2 entradas?** A distância sozinha é detector de *novidade* (dispara em app novo); a
-auxiliar segura isso. **Fundir** pega "longe do normal" **e** "parece erro".
+auxiliar segura isso. **Honestidade:** a fusão foi calibrada para **não** explorar a resolução,
+então sua AUROC **global cai de propósito** (≈0.68) → lidere pelo **protótipo** (A).
 
 <!--
-🎤 Fala: "Aqui está a cadeia inteira. A distância (A) e a cabeça auxiliar (B) entram numa
-regressão logística (C) que devolve a probabilidade de erro. Em cima dela vem o limiar (D).
-Uso duas entradas porque a distância pura dispararia em qualquer app novo — a auxiliar
-corrige isso."
+🎤 Fala: "A distância (A, o decisor canônico) e a cabeça auxiliar multi-classe (B) entram numa
+fusão logística (C), CALIBRADA na validação livre de confound, que devolve p(erro); em cima
+vem o limiar (D). Honestidade: a fusão foi calibrada pra NÃO usar o atalho de resolução, então
+a AUROC global da fusão cai de propósito — por isso lidero pelo protótipo, não pela fusão."
 -->
 
 ---
@@ -321,48 +347,55 @@ isso, e o diagrama detalhado mostra as duas entradas."
 
 ---
 
-## ✅ / ❌ Resultado
+## ✅ / ❌ Resultado — held-out honesto (130 imgs · teste trancado · 1×)
 
-<br>
+| Estágio 1 — gate "tem erro?" | Valor | Leitura |
+|---|---|---|
+| **Detecção LIVRE DE CONFOUND** (sintético) | **AUROC 0.72 · AP 0.89** | a prova honesta |
+| **AUROC protótipo** (decisor canônico) | **0.73** | sinal mais limpo · controlado 0.71 |
+| **Ponto de operação** (calib. livre de confound) | especificidade **0.27** · bAcc **0.57** · F1 **0.79** | o conserto mais forte |
 
-| Métrica (test held-out, 54 imgs) | Valor |
+| Estágio 2 — categoria (condicional ao gate) | F1-macro |
 |---|---|
-| **Acurácia** | **0.85** (IC 95%: 0.75–0.94) |
-| **Precisão / Recall / F1** | **0.86 / 0.86 / 0.86** |
-| **AUROC / AP** (livres de limiar) | **0.90 / 0.92** |
-| **Detecção sintética livre de confound** *(prova honesta)* | **AUROC 0.88 · AP 0.97** |
-| precision@10 (topo do ranking) | **1.00** |
+| **Grossa (3 super-classes)** ⭐ | **0.62** (IC95 0.38–0.76) |
+| Fina (6 classes) — secundária | 0.36 |
 
-> Números **honestos** — sem usar o atalho da resolução.
+> **Lidere pelo livre de confound, nunca pela global** (a regra de resolução sozinha dá AUROC 0.99).
+> Confound **atenuado, não vencido** — o teto do gate é de **DADO** (telas limpas diversas).
 
 <!--
-🎤 Fala: "E é isso que sai: para cada tela, uma probabilidade e um veredito. No ponto padrão,
-acurácia 0.85, precisão e recall 0.86. E a prova de que detecta erro de verdade, sem o
-confound, é o teste sintético: AUROC 0.88."
+🎤 Fala: "O que sai: estágio 1 dá veredito; estágio 2, a categoria. NÃO lidero pela global
+(que é ~98% confound). A detecção livre de confound dá AUROC 0.72, AP 0.89, e o protótipo 0.73.
+O conserto mais forte foi o ponto de operação: a especificidade saltou pra 0.27. No estágio 2,
+taxonomia grossa F1-macro 0.62, sempre com o IC. E sou honesto: o confound foi atenuado, não
+vencido — vencer depende de DADO, não de tuning."
 -->
 
 ---
 
-## ⚠️ Comparação justa entre modelos
+## ⭐ O conserto principal — calibração do ponto de operação
 
-<br>
+> A regra trivial **só de resolução** dá **AUROC 0.99** — **mas é trapaça** (detecta o aparelho).
+> Nosso modelo **evita esse atalho de propósito**; lidere pelo livre de confound + ponto de operação.
 
-- A regra trivial **só de resolução** dá **acurácia ~98%** (AUROC 0.982) — **mas é trapaça**
-  (detecta o aparelho).
-- Nosso modelo **evita esse atalho de propósito** → marca **0.85 honesto**.
+O limiar antigo, fixado em **26 telas limpas**, **inundava de falso-alarme**. Calibrando na
+**validação livre de confound**, a especificidade **dobra** sem perder F1 (held-out):
 
-**Dois pontos de operação (mesmo modelo):**
-
-| Operação | Acurácia | Precisão | Recall | Quando usar |
+| Ponto de operação (TEST) | especificidade | FPR | bAcc | F1 |
 |---|---|---|---|---|
-| **Balanceado (padrão)** | **0.85** | 0.86 | 0.86 | comparação / uso geral |
-| Alta precisão (opcional) | 0.74 | **1.00** | 0.50 | falso-alarme é caro |
+| Antigo (calib. 26 limpas) | 0.12 | 0.88 | 0.54 | 0.82 |
+| **Novo (calib. livre de confound)** | **0.27** | **0.73** | **0.57** | 0.79 |
+
+> **Prova (mesmo modelo):** a calibração legada dá especificidade **0.00** (sinaliza TODA limpa
+> como erro) vs **0.27** da nova. **Não é o modelo, é a calibração** — e nunca toca o teste.
 
 <!--
-🎤 Fala: "Aviso para a comparação: se algum modelo concorrente mostrar 98%, vale checar se
-ele não está só explorando o confound de resolução — medimos que isso sozinho dá 98%. O
-nosso 0.85 é o número honesto. E o '100% de precisão' não é o headline: é um MODO de operação,
-pra quando falso-alarme é caro."
+🎤 Fala: "Aviso de comparação: se um concorrente mostrar 98%, cheque se não está só explorando
+o confound de resolução — sozinho ele dá AUROC 0.99. O conserto mais forte que entregamos é a
+calibração do ponto de operação: deixamos de calibrar em 26 limpas e passamos a calibrar na
+validação LIVRE de confound. A especificidade dobrou, de 0.12 pra 0.27, sem perder F1. A prova
+de que é a calibração e não o modelo: no MESMO modelo, a calibração legada dá especificidade
+zero — sinaliza toda tela limpa como erro. E nada disso toca o teste."
 -->
 
 ---
@@ -374,16 +407,17 @@ pra quando falso-alarme é caro."
 <div class="big">
 
 O sistema vira a tela em números (DINOv2 **congelado**), uma **cabeça siamesa** organiza o
-espaço (limpo junto, erro fora), e a decisão é a **distância ao centro do normal** —
-calibrada em probabilidade e cortada por um **limiar escolhido na validação**.
+espaço (limpo + reflow juntos, erros fora), e a decisão em **dois estágios** é a **distância a
+protótipos** — gate "tem erro?" → categoria — com o limiar **calibrado na validação livre de confound**.
 
 </div>
 
 <br>
 
 **Todo o resto existe para que ele aprenda o _erro_, não o _aparelho_.**
+O confound foi **atenuado, não vencido**: o ganho forte é o **ponto de operação** (especificidade 0.27) + a **clareza** (1 método por estágio), não o AUROC do gate.
 
-<span class="muted">Maior alavanca de melhoria: **dados** — telas limpas de outros devices/resoluções/fotos.</span>
+<span class="muted">Maior alavanca de melhoria: **dados** — telas limpas de outros devices/resoluções/fotos (o teto do gate é de DADO).</span>
 
 <!--
 🎤 Fala (fechamento): "Resumindo numa frase: extrai com DINOv2 congelado, a cabeça siamesa
@@ -408,11 +442,11 @@ daqui pra frente não é arquitetura — é coletar telas limpas mais diversas."
 ## Q&A — Extração & Rede Siamesa
 
 **Por que DINOv2 e não treinar uma CNN do zero?**
-Auto-supervisionado em 142M de imagens; com 360 imagens nada treinado do zero competiria.
+Auto-supervisionado em 142M de imagens; com poucas centenas de imagens reais nada treinado do zero competiria.
 
 **Por que média + desvio dos patches, não só o CLS?**
-Erros espaciais são anomalias de homogeneidade; o desvio cai em áreas uniformes.
-Ganho medido: detecção sintética **0.71 → 0.88**.
+Erros espaciais são anomalias de homogeneidade; o desvio cai em áreas uniformes — dá a pista
+espacial que o CLS sozinho não carrega (detecção livre de confound AUROC 0.72 / AP 0.89).
 
 **Por que não comparar contra uma tela boa de referência?**
 A classe limpa é diversa (apps diferentes) → falso-positivo estrutural. Por isso **protótipos**.
@@ -420,28 +454,31 @@ A classe limpa é diversa (apps diferentes) → falso-positivo estrutural. Por i
 **Por que padding cinza, não esticar/cortar?**
 Esticar distorce o erro; cortar perde topo/laterais. Cinza some na normalização. `pad ≥ resize` (medido).
 
-<!-- 🎤 Fala: respostas curtas; se quiserem número, cito o 0.71→0.88 e o pad≥resize. -->
+<!-- 🎤 Fala: respostas curtas; se quiserem número, cito o livre-de-confound 0.72/0.89 e o pad≥resize. -->
 
 ---
 
 ## Q&A — Decisão, limiar & dados
 
 **O limiar é uma distância fixa?**
-Não. O *sinal* é distância; o *corte* é sobre `p(erro)` e seu valor é **otimizado na validação**.
+Não. O *sinal* é distância; o *corte* é sobre `p(erro)`, **calibrado na validação LIVRE DE CONFOUND** (specificity-first).
 
-**Por que k=1 protótipo?**
-O conjunto limpo é unimodal aqui. O código suporta **k-means com k>1** (multimodal) por config.
+**Por que protótipos via k-means?**
+Resumem o cluster limpo (limpas reais + reflow). Multimodal? basta aumentar o k na config.
 
 **Por que cosseno e não euclidiana?**
 Vetores normalizados (hiperesfera) → cosseno mede direção/conteúdo, casa com o treino contrastivo.
 
-**Por que a acurácia é "só" 0.85 se a regra boba dá 98%?**
-98% é trapaça (detecta device). 0.85 é honesto; prova livre de confound: AUROC 0.88.
+**Por que não liderar pela acurácia/AUROC global?**
+A global é ~98% trapaça (regra de resolução → AUROC 0.99). Liderar pelo livre de confound (0.72/0.89) + ponto de operação (espec. 0.27).
 
-**Maior alavanca de melhoria?**
-**Dados**, não arquitetura — telas limpas diversas (outros devices/resoluções/fotos).
+**O confound foi resolvido?**
+**Atenuado, não vencido:** no held-out, prever resolução (0.679) ≈ prever erro (0.681). Vencer depende de **DADO**.
 
-<!-- 🎤 Fala: aqui mora a pergunta do limiar; se aprofundarem, volto à cadeia A→D. -->
+**Estágio 2 melhorou?**
+Ficou **claro** (1 método, condicional ao gate). Grossa F1-macro 0.62 (IC95 0.38–0.76); o salto fina→grossa é em grande parte agregação 6→3.
+
+<!-- 🎤 Fala: aqui mora a pergunta do limiar; se aprofundarem, volto à cadeia A→D. Honestidade: confound atenuado, não vencido. -->
 
 ---
 

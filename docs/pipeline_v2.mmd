@@ -1,0 +1,92 @@
+graph TD
+    %% =====================================================================
+    %% Pipeline — UI layout-error detector (siamese head over frozen DINOv2)
+    %% Two stages: (1) "is there an error?" gate · (2) error category
+    %% =====================================================================
+
+    %% ---------- 1. DATA SOURCES ----------
+    subgraph S1["1 · Data sources (raw)"]
+        direction TB
+        CLEAN["data/input/no_erros/<br/>172 clean screens<br/>ALL 2076×2152 — single device<br/>⚠ resolution confound"]
+        ERR["data/input/errors_dataset/&lt;category&gt;/<br/>369 real errors · 6 categories<br/>black_bars · disordered_layout · distortion ·<br/>empty_space · orientation · overlay"]
+    end
+
+    %% ---------- 2. SPLIT + SINGLE SOURCE OF TRUTH ----------
+    SPLIT["build_splits.py<br/>grouped (ticket + session/dHash) +<br/>stratified by category · 0 leakage<br/>train 330 · val 81 · test 130"]
+    PROC[("data/processed/ — SINGLE SOURCE OF TRUTH<br/>real per-category + synthetic")]
+
+    %% ---------- 3. ANTI-CONFOUND AUGMENTATION (train only) ----------
+    subgraph S3["3 · Anti-confound augmentation (train only)"]
+        direction TB
+        SYN["Synthetic ERRORS injected in clean screens<br/>SAME resolution (synthetic.py · +420)<br/>→ breaks confound from the ERROR side"]
+        REF["REFLOW clean variants (reflow.py · +420)<br/>scroll · dual-pane · aspect-ratio · spacing<br/>→ breaks confound from the CLEAN side"]
+    end
+
+    %% ---------- 4. BACKBONE + FEATURES ----------
+    PRE["Preprocess: gray-pad to 518×518 + patch mask<br/>(geometry.py)"]
+    BB["DINOv2 ViT-S/14 ❄ FROZEN<br/>CLS + mean/std of patch tokens = 1152-d"]
+    EMB[("Cached embeddings .npz<br/>artifacts/embeddings/")]
+
+    %% ---------- 5. TRAINING (only trainable part) ----------
+    HEAD["Siamese projection head g(·) 🎯 TRAINABLE (~330k)<br/>→ z ∈ 128-d (L2-normalized)<br/>Loss = SupCon(z) + 0.6·CE(aux, 7 classes)<br/>early-stop on confound-free val gate"]
+
+    %% ---------- 6. TWO-STAGE DECISION ----------
+    subgraph S6["6 · Two-stage decision"]
+        direction TB
+        G1{"Stage 1 — GATE: is there an error?<br/>fusion[dist. to clean prototype, 1−P(clean)]<br/>threshold calibrated on confound-free val"}
+        G2["Stage 2 — CATEGORY (only if error)<br/>nearest category prototype in z-space<br/>→ 3 coarse super-classes"]
+    end
+
+    %% ---------- 7. HONEST EVALUATION + OUTPUTS ----------
+    subgraph S7["7 · Honest evaluation & outputs"]
+        direction TB
+        EVAL["evaluate.py --final-test<br/>(test LOCKED by protocol · read once)<br/>vs confound baselines · falsifiability · 95% CI"]
+        REP["run_experiment.py →<br/>EXPERIMENT_RESULTS.md / .json<br/>confusion matrices · per-class chart"]
+        VIZ["visualize.py →<br/>train/test clusters (before × after)"]
+    end
+
+    %% ===================== EDGES =====================
+    CLEAN --> SPLIT
+    ERR --> SPLIT
+    SPLIT -->|"materialize"| PROC
+    CLEAN -. "inject errors (same res)" .-> SYN
+    CLEAN -. "legit layout changes" .-> REF
+    PROC -->|"scan tree"| PRE
+    SYN -->|"train only"| PRE
+    REF -->|"train only"| PRE
+    PRE --> BB
+    BB -->|"extract"| EMB
+    EMB -->|"fast train (frozen backbone)"| HEAD
+    HEAD -->|"z + aux logits"| G1
+    G1 -->|"yes → error"| G2
+    G1 -->|"score / threshold"| EVAL
+    G2 -->|"category"| EVAL
+    EVAL --> REP
+    HEAD -. "z-space (UMAP)" .-> VIZ
+    G1 -. "operating point" .-> VIZ
+
+    %% ===================== STYLES =====================
+    classDef source   fill:#E3F2FD,stroke:#1565C0,color:#0D47A1;
+    classDef split    fill:#E8EAF6,stroke:#3949AB,color:#1A237E;
+    classDef synth    fill:#FFF3E0,stroke:#E65100,color:#BF360C;
+    classDef frozen   fill:#ECEFF1,stroke:#455A64,color:#263238;
+    classDef proc     fill:#E0F2F1,stroke:#00695C,color:#004D40;
+    classDef store    fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20;
+    classDef train    fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C;
+    classDef decision fill:#FCE4EC,stroke:#AD1457,color:#880E4F;
+    classDef output   fill:#FFFDE7,stroke:#F9A825,color:#F57F17;
+
+    class CLEAN,ERR source;
+    class SPLIT split;
+    class SYN,REF synth;
+    class BB frozen;
+    class PRE proc;
+    class PROC,EMB store;
+    class HEAD train;
+    class G1,G2 decision;
+    class EVAL,REP,VIZ output;
+
+    style S1 fill:#F5FAFF,stroke:#90CAF9,color:#1565C0
+    style S3 fill:#FFF8F0,stroke:#FFB74D,color:#E65100
+    style S6 fill:#FDF1F5,stroke:#F48FB1,color:#AD1457
+    style S7 fill:#FFFEF2,stroke:#FFE082,color:#F9A825

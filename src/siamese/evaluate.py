@@ -26,13 +26,16 @@ from sklearn.preprocessing import normalize, StandardScaler
 from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import (roc_auc_score, average_precision_score, precision_recall_curve,
                              accuracy_score, f1_score, balanced_accuracy_score,
-                             confusion_matrix, matthews_corrcoef, brier_score_loss)
+                             confusion_matrix, matthews_corrcoef, brier_score_loss,
+                             precision_score, recall_score)
 
 from .features import load_embeddings
 from .decision import (fit_prototypes, PrototypeDecider,
                        select_threshold_for_precision, select_threshold_max_f1,
+                       select_threshold_for_specificity,
                        fit_category_prototypes, assign_category)
-from .manifest import category_id, CATEGORY_TO_ID, ID_TO_CATEGORY, CATEGORIES, CLEAN_CATEGORY
+from .manifest import (category_id, CATEGORY_TO_ID, ID_TO_CATEGORY, CATEGORIES, CLEAN_CATEGORY,
+                       coarse_id, coarse_of, COARSE_CATEGORIES, ID_TO_COARSE)
 
 CLEAN_RES = (2076, 2152)
 
@@ -148,10 +151,12 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
                 "evaluate(final_test=True) exige a trava liberada. Use `scripts/evaluate.py "
                 "--final-test` (uma unica vez, apos congelar arquitetura/pesos/limiares).")
         ho = load_embeddings(emb_dir / "test.npz")            # HELD-OUT real
-        ho_name, ho_syn_path = "test", emb_dir / "test_synth.npz"
+        ho_name = "test"
+        ho_syn_path, ho_reflow_path = emb_dir / "test_synth.npz", emb_dir / "test_reflow.npz"
     else:
         ho = va                                               # DEV: relatorio sobre a propria val
-        ho_name, ho_syn_path = "val", emb_dir / "val_synth.npz"
+        ho_name = "val"
+        ho_syn_path, ho_reflow_path = emb_dir / "val_synth.npz", emb_dir / "val_reflow.npz"
     model = load_model(Path(cfg.paths.models_dir) / "siamese_head.pt", device=device)
     multiclass = getattr(model, "num_classes", 1) > 1
 
@@ -168,11 +173,48 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
     decider = PrototypeDecider(protos, threshold=0.0, target_precision=cfg.decision.target_precision)
     sp_tr, sp_va, sp_ho = decider.scores(z_tr), decider.scores(z_va), decider.scores(z_ho)
 
-    # fusao calibrada [score_proto, aux_err] via LogReg na VAL (avaliada no held-out)
-    fus = LogisticRegression(max_iter=1000)
-    Xv = np.stack([sp_va, ae_va], axis=1)
-    fus.fit(Xv, va["label"])
-    fused_va = fus.predict_proba(Xv)[:, 1]
+    # ---- CALIBRACAO da fusao [score_proto, aux_err] + limiar (SEMPRE na VAL; nunca no teste) ----
+    # Conjunto de calibracao conforme cfg.decision.calibrate_on (ver config.py):
+    #   "confound_free" (padrao): limpas-val reais (0) + val_synth erros (1) + val_reflow limpas (0)
+    #       -> muitos negativos limpos + positivos LIVRES de confound => limiar/fusao ESTAVEIS
+    #          (corrige o FPR alto de calibrar so em ~26 limpas reais confundidas).
+    #   "real_val" (legado): so a val real (limpas + erros reais confundidos).
+    # NB anti-snooping: a regra de DESIGN §8 ("nao calibrar em sintetico") e' sobre o TESTE;
+    # val_synth/val_reflow vem de processed/VAL e ja sustentam o early-stop honesto. Teste segue
+    # trancado por protocol.guard_path (so --final-test). Reportamos os DOIS pontos lado a lado.
+    def _probe_scores(path: Path):
+        """(sp, ae, dict) de uma sonda; None se ausente. SO sondas de VAL entram na calibracao."""
+        if not path.exists():
+            return None
+        d = load_embeddings(path)
+        zz, ax = model_embeddings(model, d["emb"], device)
+        return decider.scores(zz), _aux_err(ax, multiclass), d
+
+    cal_val_synth = _probe_scores(emb_dir / "val_synth.npz") if cfg.synthetic.enabled else None
+    cal_val_reflow = _probe_scores(emb_dir / "val_reflow.npz") if cfg.synthetic.enabled else None
+
+    def _cal_set(meth: str):
+        """Devolve (sp, ae, y) do conjunto de calibracao para o metodo dado."""
+        if meth == "confound_free" and cal_val_synth is not None:
+            clean_va = va["label"] == 0
+            sps = [sp_va[clean_va]]; aes = [ae_va[clean_va]]; ys = [np.zeros(int(clean_va.sum()))]
+            sps.append(cal_val_synth[0]); aes.append(cal_val_synth[1]); ys.append(np.ones(len(cal_val_synth[0])))
+            if cal_val_reflow is not None:
+                sps.append(cal_val_reflow[0]); aes.append(cal_val_reflow[1]); ys.append(np.zeros(len(cal_val_reflow[0])))
+            return np.concatenate(sps), np.concatenate(aes), np.concatenate(ys).astype(int)
+        return sp_va, ae_va, va["label"].astype(int)
+
+    req_method = cfg.decision.calibrate_on
+    eff_method = req_method if (req_method == "real_val" or cal_val_synth is not None) else "real_val"
+
+    def _fit_fusion(meth):
+        csp, cae, cy = _cal_set(meth)
+        Xc = np.stack([csp, cae], axis=1)
+        f = LogisticRegression(max_iter=1000).fit(Xc, cy)
+        return f, f.predict_proba(Xc)[:, 1], cy
+
+    fus, fused_cal, y_cal = _fit_fusion(eff_method)
+    fused_va = fus.predict_proba(np.stack([sp_va, ae_va], axis=1))[:, 1]
     fused_ho = fus.predict_proba(np.stack([sp_ho, ae_ho], axis=1))[:, 1]
     fused_tr = fus.predict_proba(np.stack([sp_tr, ae_tr], axis=1))[:, 1]   # p/ metricas de TREINO
 
@@ -180,6 +222,8 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
             else "DEV (val in-sample — NAO held-out; numeros vinculantes so via --final-test)")
     report: dict = {"n_test": int(len(ho["label"])), "multiclass": bool(multiclass),
                     "target_precision": cfg.decision.target_precision,
+                    "calibrate_on": eff_method, "calibrate_on_requested": req_method,
+                    "n_calibracao": int(len(y_cal)),
                     "_modo": modo, "_holdout": ho_name}
 
     # ---- 1) global: modelo vs baselines de confound ----
@@ -303,10 +347,10 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
     falsi["auroc_label_shuffle_no_estrato"] = float(roc_auc_score(ho["label"], s_sh))
     report["falseabilidade"] = falsi
 
-    # ---- 6) limiar por precisao-alvo (fixado na VAL) + metricas no held-out ----
+    # ---- 6) limiar por precisao-alvo (fixado no conjunto de CALIBRACAO) + metricas no held-out ----
     thr_results = {}
     for target in (0.90, 0.95, 0.99):
-        thr, info = select_threshold_for_precision(fused_va, va["label"], target)
+        thr, info = select_threshold_for_precision(fused_cal, y_cal, target)
         pred = (fused_ho > thr).astype(int)
         tp = int(((pred == 1) & (ho["label"] == 1)).sum())
         fp = int(((pred == 1) & (ho["label"] == 0)).sum())
@@ -326,10 +370,14 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
     # ---- PONTO DE OPERACAO (objetivo do config) — metricas COMPLETAS em TREINO e HELD-OUT ----
     # O limiar e' SEMPRE escolhido na VAL (calibracao) e aplicado em ambos. Em modo FINAL o
     # held-out e' o teste; em DEV e' a propria val (in-sample — ver report['_modo']).
-    if cfg.decision.objective == "precision":
-        op_thr, op_val = select_threshold_for_precision(fused_va, va["label"], cfg.decision.target_precision)
-    else:  # f1 (balanceado) — padrao
-        op_thr, op_val = select_threshold_max_f1(fused_va, va["label"])
+    def _select_thr(fused, ycal):
+        if cfg.decision.objective == "precision":
+            return select_threshold_for_precision(fused, ycal, cfg.decision.target_precision)
+        if cfg.decision.objective == "specificity":
+            return select_threshold_for_specificity(fused, ycal, cfg.decision.target_specificity)
+        return select_threshold_max_f1(fused, ycal)            # f1 (balanceado) — padrao
+
+    op_thr, op_val = _select_thr(fused_cal, y_cal)
 
     def _op_metrics(y, fused, groups):
         pred = (fused > op_thr).astype(int)
@@ -356,53 +404,182 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
         }
 
     report["ponto_operacao"] = _op_metrics(ho["label"], fused_ho, ho["group"])         # HELD-OUT
+    report["ponto_operacao"]["calibracao"] = op_val                                    # info da val
     report["ponto_operacao_treino"] = _op_metrics(tr["label"], fused_tr, tr["group"])  # TREINO (in-sample)
     op = report["ponto_operacao"]
     tp, tn, fp, fn = op["confusao"]["TP"], op["confusao"]["TN"], op["confusao"]["FP"], op["confusao"]["FN"]
 
-    # ---- ESTAGIO 2: clusterizacao por CATEGORIA (multi-cluster) — em HELD-OUT e TREINO ----
+    # ---- CALIBRACAO: comparacao real_val vs confound_free no held-out (prova da estabilidade) ----
+    def _method_op(meth):
+        f, fcal, ycal = _fit_fusion(meth)
+        thr, _ = _select_thr(fcal, ycal)
+        fho = f.predict_proba(np.stack([sp_ho, ae_ho], axis=1))[:, 1]
+        pred = (fho > thr).astype(int)
+        y = ho["label"]
+        tp_ = int(((pred == 1) & (y == 1)).sum()); tn_ = int(((pred == 0) & (y == 0)).sum())
+        fp_ = int(((pred == 1) & (y == 0)).sum()); fn_ = int(((pred == 0) & (y == 1)).sum())
+        spec_ci = grouped_bootstrap_ci(
+            lambda yy, pp: ((pp == 0) & (yy == 0)).sum() / max(1, (yy == 0).sum()),
+            y, pred.astype(float), ho["group"])
+        return {"n_calibracao": int(len(ycal)), "threshold": float(thr),
+                "acuracia": float(accuracy_score(y, pred)),
+                "balanced_accuracy": float(balanced_accuracy_score(y, pred)),
+                "f1": float(f1_score(y, pred, zero_division=0)),
+                "recall": float(tp_ / (tp_ + fn_)) if tp_ + fn_ else 0.0,
+                "especificidade": float(tn_ / (tn_ + fp_)) if tn_ + fp_ else 0.0,
+                "fpr": float(fp_ / (fp_ + tn_)) if fp_ + tn_ else 0.0,
+                "mcc": float(matthews_corrcoef(y, pred)) if len(np.unique(y)) == 2 else float("nan"),
+                "ci95_especificidade": spec_ci, "confusao": {"TP": tp_, "TN": tn_, "FP": fp_, "FN": fn_}}
+    methods_avail = ["real_val"] + (["confound_free"] if cal_val_synth is not None else [])
+    report["calibracao_comparacao"] = {m: _method_op(m) for m in methods_avail}
+    report["calibracao_comparacao"]["_nota"] = (
+        "Mesmo modelo/AUROC; muda so o conjunto que fixa fusao+limiar. 'confound_free' usa "
+        "limpas-val + val_synth (+val_reflow) -> limiar estavel (especificidade alta sem perder "
+        "recall). Limiar do headline = '" + eff_method + "'.")
+
+    # ---- REFLOW: falso-positivo em mudanca de LAYOUT LEGITIMA (o gate NAO deve acender) ----
+    # Honestidade (DEV): val_reflow; (FINAL): test_reflow. AUROC(limpo-real vs limpo-reflow)
+    # deve ficar ~0.5 (reflow nao e' erro). FP-rate no limiar de operacao mede o falso-alarme
+    # em telas legitimamente re-arranjadas — o problema que o reflow-clean ataca.
+    rf_probe = _probe_scores(ho_reflow_path)
+    if rf_probe is not None:
+        sp_rf, ae_rf, _ = rf_probe
+        fused_rf = fus.predict_proba(np.stack([sp_rf, ae_rf], axis=1))[:, 1]
+        clean_ho = ho["label"] == 0
+        y_rf = np.concatenate([np.zeros(int(clean_ho.sum())), np.ones(len(fused_rf))])  # 1=reflow
+        s_rf = np.concatenate([fused_ho[clean_ho], fused_rf])
+        fp_reflow = int((fused_rf > op_thr).sum())
+        report["reflow_falso_positivo"] = {
+            "n_clean": int(clean_ho.sum()), "n_reflow": int(len(fused_rf)),
+            "auroc_clean_vs_reflow": float(roc_auc_score(y_rf, s_rf)),
+            "nota_auroc": "~0.5 = o modelo NAO distingue reflow de limpa real (desejado: reflow nao e' erro)",
+            "fp_rate_reflow_no_limiar": float(fp_reflow / len(fused_rf)) if len(fused_rf) else 0.0,
+            "fp_reflow": fp_reflow, "limiar": float(op_thr),
+            "p_erro_medio_reflow": float(fused_rf.mean()),
+            "p_erro_medio_clean_real": float(fused_ho[clean_ho].mean()) if clean_ho.sum() else float("nan"),
+        }
+
+    # ---- DETECCAO POR CATEGORIA DE ERRO (Estagio 1, por grupo) ----
+    # "Em qual classe de erro o GATE pega melhor?" Para cada categoria: taxa de deteccao (recall)
+    # no limiar de operacao + AUROC(categoria vs limpo) + suporte. (Precisao NAO e' decomponivel
+    # por classe no gate: um falso-positivo e' uma tela LIMPA, nao atribuivel a uma categoria.)
+    if multiclass:
+        cat_ho = _cat_ids(ho)
+        clean_m = ho["label"] == 0
+        n_clean = int(clean_m.sum())
+        det = {}
+        for cid in sorted({int(c) for c in cat_ho[ho["label"] == 1]}):
+            name = ID_TO_CATEGORY[cid]
+            cm = cat_ho == cid
+            n = int(cm.sum())
+            if n == 0:
+                continue
+            entry = {"n": n,
+                     "deteccao_recall_no_limiar": float((fused_ho[cm] > op_thr).mean()),
+                     "p_erro_medio": float(fused_ho[cm].mean())}
+            if n_clean > 0:
+                yb = np.concatenate([np.zeros(n_clean), np.ones(n)])
+                entry["auroc_vs_limpo_proto"] = float(roc_auc_score(yb, np.concatenate([sp_ho[clean_m], sp_ho[cm]])))
+                entry["auroc_vs_limpo_fusao"] = float(roc_auc_score(yb, np.concatenate([fused_ho[clean_m], fused_ho[cm]])))
+                entry["ci95_auroc_proto"] = grouped_bootstrap_ci(
+                    roc_auc_score, yb,
+                    np.concatenate([sp_ho[clean_m], sp_ho[cm]]),
+                    np.concatenate([ho["group"][clean_m], ho["group"][cm]]))
+            det[name] = entry
+        report["deteccao_por_categoria"] = {
+            "n_limpo": n_clean, "por_classe": det,
+            "nota": ("Estagio 1 por grupo de erro. 'deteccao_recall_no_limiar' = fracao dos erros "
+                     "desta categoria marcados como ERRO no limiar de operacao. 'auroc_vs_limpo' = "
+                     "separabilidade categoria-vs-limpo (CONFUNDIDA: cada categoria tem perfil de "
+                     "resolucao proprio). Precisao nao e' decomponivel por classe no gate."),
+        }
+
+    # ---- ESTAGIO 2: CATEGORIA do erro (desenho CONSOLIDADO) --------------------------------
+    # Decisor CANONICO = PROTOTIPO de categoria (cfg.decision.stage2_method): mesma nocao do
+    # Estagio 1 (1-cos ao prototipo) -> narrativa unica "distancia a prototipos no espaco SupCon".
+    # A cabeca aux fica como DIAGNOSTICO/ablacao (nao decisor). Reportamos:
+    #   - taxonomia GROSSA (3 super-classes por nao-colisao) = PRIMARIA (tem poder estatistico);
+    #   - taxonomia FINA (6 classes) = secundaria/exploratoria (teto estrutural, DESIGN §10.5);
+    #   - ORACULO (todos os erros) e CONDICIONAL ao gate E1 (so erros que o E1 sinalizou = PRODUCAO).
     cat_protos = cat_proto_ids = None
     clean_id = CATEGORY_TO_ID[CLEAN_CATEGORY]
-    if multiclass:
+    if multiclass and (_cat_ids(tr) != clean_id).sum() > 0:   # guarda: precisa de erros no treino
         cat_tr = _cat_ids(tr)
         err_tr = cat_tr != clean_id
         cat_protos, cat_proto_ids = fit_category_prototypes(
             z_tr[err_tr], cat_tr[err_tr], k=cfg.decision.k_prototypes, seed=cfg.seed)
         err_class_ids = sorted({int(c) for c in cat_proto_ids}) if cat_protos is not None else []
+        canonical = cfg.decision.stage2_method
+        _to_coarse = lambda arr: np.array([coarse_id(ID_TO_CATEGORY[int(i)]) for i in arr], dtype=int)
 
-        def _stage2(z_split, aux_split, cat_split):
+        def _metrics(y_true, y_pred, id_to_name, groups):
+            present = sorted(set(y_true.tolist()) | set(y_pred.tolist()))
+            f1c = f1_score(y_true, y_pred, labels=present, average=None, zero_division=0)
+            if groups is not None and len(np.unique(groups)) > 1:
+                ci = grouped_bootstrap_ci(
+                    lambda yt, yp: f1_score(yt, yp.astype(int), labels=present, average="macro",
+                                            zero_division=0), y_true, y_pred.astype(float), groups)
+            else:
+                ci = (float("nan"), float("nan"))
+            prec = precision_score(y_true, y_pred, labels=present, average=None, zero_division=0)
+            rec = recall_score(y_true, y_pred, labels=present, average=None, zero_division=0)
+            return {
+                "accuracy": float(accuracy_score(y_true, y_pred)),
+                "f1_macro": float(f1_score(y_true, y_pred, labels=present, average="macro", zero_division=0)),
+                "ci95_f1_macro": ci,
+                "f1_por_classe": {id_to_name[i]: float(f) for i, f in zip(present, f1c)},
+                "precisao_por_classe": {id_to_name[i]: float(p) for i, p in zip(present, prec)},
+                "recall_por_classe": {id_to_name[i]: float(r) for i, r in zip(present, rec)},
+                "suporte_por_classe": {id_to_name[i]: int((y_true == i).sum()) for i in present},
+                "classes": [id_to_name[i] for i in present],
+                "confusion_matrix": confusion_matrix(y_true, y_pred, labels=present).tolist(),
+            }
+
+        def _stage2(z_split, aux_split, cat_split, groups_split, *, gate_mask=None):
             err = cat_split != clean_id
+            if gate_mask is not None:
+                err = err & gate_mask
             if err.sum() == 0 or cat_protos is None:
                 return None
-            y_true = cat_split[err]
-            y_proto = assign_category(z_split[err], cat_protos, cat_proto_ids)            # clusterizacao
-            y_aux = np.array(err_class_ids)[aux_split[err][:, err_class_ids].argmax(axis=1)]  # aux head
-            present = sorted(set(y_true.tolist()) | set(y_proto.tolist()) | set(y_aux.tolist()))
+            yt = cat_split[err]
+            g_e = groups_split[err] if groups_split is not None else None
+            y_proto = assign_category(z_split[err], cat_protos, cat_proto_ids)
+            y_aux = np.array(err_class_ids)[aux_split[err][:, err_class_ids].argmax(axis=1)]
+            canon = y_proto if canonical == "prototype" else y_aux
+            out = {
+                "n_erro": int(err.sum()), "metodo_canonico": canonical, "taxonomia_primaria": "grossa",
+                # PRIMARIA: grossa, metodo canonico (headline do Estagio 2)
+                "grossa": _metrics(_to_coarse(yt), _to_coarse(canon), ID_TO_COARSE, g_e),
+                # secundaria: fina, ambos os metodos (aux = diagnostico)
+                "fina": {"por_prototipo": _metrics(yt, y_proto, ID_TO_CATEGORY, g_e),
+                         "por_aux_head": _metrics(yt, y_aux, ID_TO_CATEGORY, g_e)},
+                "_yt_co": _to_coarse(yt), "_yp_co": _to_coarse(canon),
+            }
+            return out
 
-            def _m(yp):
-                f1c = f1_score(y_true, yp, labels=present, average=None, zero_division=0)
-                return {
-                    "accuracy": float(accuracy_score(y_true, yp)),
-                    "f1_macro": float(f1_score(y_true, yp, labels=present, average="macro", zero_division=0)),
-                    "f1_por_classe": {ID_TO_CATEGORY[i]: float(f) for i, f in zip(present, f1c)},
-                    "confusion_matrix": confusion_matrix(y_true, yp, labels=present).tolist(),
-                }
-            return {"n_erro": int(err.sum()), "classes": [ID_TO_CATEGORY[i] for i in present],
-                    "por_prototipo": _m(y_proto), "por_aux_head": _m(y_aux),
-                    "_y_true": y_true, "_y_proto": y_proto}
-
-        s2_ho = _stage2(z_ho, aux_ho, _cat_ids(ho))
-        s2_tr = _stage2(z_tr, aux_tr, cat_tr)
-        if s2_ho:
-            report["estagio2_categoria"] = {k: v for k, v in s2_ho.items() if not k.startswith("_")}
-            report["estagio2_categoria"]["nota"] = ("categoria atribuida SO a imagens de ERRO. "
-                "'por_prototipo' = clusterizacao no espaco z (protótipo mais próximo).")
-            _confusion_plot_multiclass(rep_dir, s2_ho["_y_true"], s2_ho["_y_proto"],
-                                       s2_ho["classes"], s2_ho["por_prototipo"]["f1_macro"], suffix="")
+        gate_pass = fused_ho > op_thr
+        s2_or = _stage2(z_ho, aux_ho, _cat_ids(ho), ho["group"])                       # oraculo
+        s2_cd = _stage2(z_ho, aux_ho, _cat_ids(ho), ho["group"], gate_mask=gate_pass)  # condicional
+        s2_tr = _stage2(z_tr, aux_tr, cat_tr, tr["group"])
+        if s2_or:
+            rep_e2 = {
+                "metodo_canonico": canonical,
+                "nota": ("E2 atribui categoria SO a imagens de ERRO via PROTOTIPO de categoria "
+                         "(canonico). PRIMARIA = taxonomia GROSSA (3 super-classes). 'condicional_"
+                         "ao_gate' = so erros que o E1 sinalizou (= producao). aux_head = diagnostico."),
+                "oraculo": {k: v for k, v in s2_or.items() if not k.startswith("_")},
+            }
+            if s2_cd:
+                rep_e2["condicional_ao_gate"] = {k: v for k, v in s2_cd.items() if not k.startswith("_")}
+                rep_e2["condicional_ao_gate"]["nota"] = (
+                    f"erros que passaram o gate E1 (limiar={op_thr:.3f}): {s2_cd['n_erro']}/{s2_or['n_erro']}.")
+            report["estagio2_categoria"] = rep_e2
+            _confusion_plot_multiclass(rep_dir, s2_or["_yt_co"], s2_or["_yp_co"],
+                                       s2_or["grossa"]["classes"], s2_or["grossa"]["f1_macro"], suffix="")
         if s2_tr:
             report["estagio2_categoria_treino"] = {k: v for k, v in s2_tr.items() if not k.startswith("_")}
-            _confusion_plot_multiclass(rep_dir, s2_tr["_y_true"], s2_tr["_y_proto"],
-                                       s2_tr["classes"], s2_tr["por_prototipo"]["f1_macro"], suffix="_treino")
+            _confusion_plot_multiclass(rep_dir, s2_tr["_yt_co"], s2_tr["_yp_co"],
+                                       s2_tr["grossa"]["classes"], s2_tr["grossa"]["f1_macro"], suffix="_treino")
 
     # ---- decision bundle (para inferencia self-contained) — SEMPRE calibrado na val ----
     d = z_tr.shape[1]
@@ -448,11 +625,11 @@ def _confusion_plot(rep_dir, tp, tn, fp, fn, op, split_name="TEST", suffix=""):
     for i in range(2):
         for j in range(2):
             ax.text(j, i, cm[i, j], ha="center", va="center", fontsize=22, color="black")
-    ax.set_xticks([0, 1]); ax.set_xticklabels(["sem-erro", "erro"])
-    ax.set_yticks([0, 1]); ax.set_yticklabels(["sem-erro", "erro"])
-    ax.set_xlabel("predito"); ax.set_ylabel("real")
-    ax.set_title(f"Matriz de confusao ({split_name}, ponto balanceado)\n"
-                 f"ACC={op['acuracia']:.2f}  Precisao={op['precisao']:.2f}  "
+    ax.set_xticks([0, 1]); ax.set_xticklabels(["no-error", "error"])
+    ax.set_yticks([0, 1]); ax.set_yticklabels(["no-error", "error"])
+    ax.set_xlabel("predicted"); ax.set_ylabel("actual")
+    ax.set_title(f"Confusion matrix ({split_name}, balanced operating point)\n"
+                 f"ACC={op['acuracia']:.2f}  Precision={op['precisao']:.2f}  "
                  f"Recall={op['recall']:.2f}  F1={op['f1']:.2f}")
     fig.tight_layout(); fig.savefig(rep_dir / f"confusion_matrix{suffix}.png", dpi=120); plt.close(fig)
 
@@ -472,8 +649,8 @@ def _confusion_plot_multiclass(rep_dir, y_true, y_pred, names, f1_macro, suffix=
                     color="black" if cm[i, j] < cm.max() / 2 else "white")
     ax.set_xticks(range(n)); ax.set_xticklabels(names, rotation=45, ha="right", fontsize=9)
     ax.set_yticks(range(n)); ax.set_yticklabels(names, fontsize=9)
-    ax.set_xlabel("categoria predita (protótipo)"); ax.set_ylabel("categoria real")
-    ax.set_title(f"Estágio 2 — matriz de confusão por categoria (TEST)\nF1 macro = {f1_macro:.2f}")
+    ax.set_xlabel("predicted category (prototype)"); ax.set_ylabel("actual category")
+    ax.set_title(f"Stage 2 — category confusion (held-out)\nmacro-F1 = {f1_macro:.2f}", fontsize=11)
     fig.tight_layout(); fig.savefig(rep_dir / f"confusion_matrix_categoria{suffix}.png", dpi=120); plt.close(fig)
 
 
@@ -484,20 +661,20 @@ def _plots(rep_dir, te, sp_te, fused_te, va, fused_va, y_sy, s_sy_fus, thr_resul
 
     fig, ax = plt.subplots(1, 3, figsize=(16, 4.5))
     # distribuicao de score por classe (test)
-    ax[0].hist(fused_te[te["label"] == 0], bins=20, alpha=0.6, label="sem-erro", color="tab:green")
-    ax[0].hist(fused_te[te["label"] == 1], bins=20, alpha=0.6, label="erro", color="tab:red")
-    ax[0].set_title("Score de fusao no TEST (real)"); ax[0].set_xlabel("p(erro)"); ax[0].legend()
+    ax[0].hist(fused_te[te["label"] == 0], bins=20, alpha=0.6, label="no-error", color="tab:green")
+    ax[0].hist(fused_te[te["label"] == 1], bins=20, alpha=0.6, label="error", color="tab:red")
+    ax[0].set_title("Fusion score on held-out (real)"); ax[0].set_xlabel("p(error)"); ax[0].legend()
     # PR curve
     p, r, _ = precision_recall_curve(te["label"], fused_te)
-    ax[1].plot(r, p); ax[1].set_title("Precision-Recall (TEST real)")
+    ax[1].plot(r, p); ax[1].set_title("Precision–Recall (held-out, real)")
     ax[1].set_xlabel("recall"); ax[1].set_ylabel("precision"); ax[1].set_ylim(0, 1.02)
-    # sintetico livre de confound (pode estar ausente se synthetic.enabled=false)
+    # confound-free synthetic (may be absent if synthetic.enabled=false)
     if y_sy is not None and s_sy_fus is not None:
-        ax[2].hist(s_sy_fus[y_sy == 0], bins=20, alpha=0.6, label="limpo", color="tab:green")
-        ax[2].hist(s_sy_fus[y_sy == 1], bins=20, alpha=0.6, label="erro sintetico", color="tab:red")
-        ax[2].set_title("Sintetico livre de confound"); ax[2].set_xlabel("p(erro)"); ax[2].legend()
+        ax[2].hist(s_sy_fus[y_sy == 0], bins=20, alpha=0.6, label="clean", color="tab:green")
+        ax[2].hist(s_sy_fus[y_sy == 1], bins=20, alpha=0.6, label="synthetic error", color="tab:red")
+        ax[2].set_title("Confound-free synthetic"); ax[2].set_xlabel("p(error)"); ax[2].legend()
     else:
-        ax[2].text(0.5, 0.5, "sonda sintetica\nindisponivel", ha="center", va="center")
+        ax[2].text(0.5, 0.5, "synthetic probe\nunavailable", ha="center", va="center")
         ax[2].set_axis_off()
     fig.tight_layout(); fig.savefig(rep_dir / "evaluation_plots.png", dpi=110)
     plt.close(fig)

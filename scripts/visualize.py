@@ -35,7 +35,8 @@ from siamese.decision import (fit_prototypes, PrototypeDecider,
                               fit_category_prototypes)
 from siamese.manifest import CATEGORY_TO_ID, ID_TO_CATEGORY, CATEGORIES
 
-COLORS = {"limpo": "#2ca02c", "erro_real": "#d62728", "erro_sintetico": "#ff7f0e", "prototipo": "#000000"}
+COLORS = {"limpo": "#2ca02c", "limpo_reflow": "#98df8a", "erro_real": "#d62728",
+          "erro_sintetico": "#ff7f0e", "prototipo": "#000000"}
 # paleta por CATEGORIA (multi-cluster): clean + 6 categorias de erro
 CATEGORY_COLORS = {
     "clean": "#2ca02c", "black_bars": "#1f77b4", "disordered_layout": "#9467bd",
@@ -50,7 +51,8 @@ OUTCOME_COLORS = {
 }
 SYMBOL = {"train": "circle", "test": "diamond"}
 # rotulos exibidos (EN) — as CHAVES acima permanecem internas (indexam cores/logica)
-CLASS_LABEL = {"limpo": "Clean", "erro_real": "Real error", "erro_sintetico": "Synthetic error"}
+CLASS_LABEL = {"limpo": "Clean", "limpo_reflow": "Clean (reflow)",
+               "erro_real": "Real error", "erro_sintetico": "Synthetic error"}
 OUTCOME_LABEL = {
     "TP_acerto_erro": "TP · error detected",
     "TN_acerto_limpo": "TN · clean correct",
@@ -122,6 +124,8 @@ def main() -> None:
         print("[DEV] sem --final-test: visualizando a VAL no lugar do TESTE (teste blindado).")
         te = va
     syn = load_embeddings(emb_dir / "train_synth.npz")
+    rf_path = emb_dir / "train_reflow.npz"
+    rf = load_embeddings(rf_path) if rf_path.exists() else None
     model = load_model(Path(cfg.paths.models_dir) / "siamese_head.pt", device=device)
     multiclass = getattr(model, "num_classes", 1) > 1
 
@@ -132,51 +136,69 @@ def main() -> None:
     # score escalar de erro da aux (binario: logit; multi-classe: 1 - P(clean))
     ae_tr, ae_te, ae_va, ae_sy = (_aux_err(aux_tr, multiclass), _aux_err(aux_te, multiclass),
                                   _aux_err(aux_va, multiclass), _aux_err(aux_sy, multiclass))
+    z_rf = ae_rf = None
+    if rf is not None:
+        z_rf, aux_rf = model_embeddings(model, rf["emb"], device)
+        ae_rf = _aux_err(aux_rf, multiclass)
 
-    # prototipo do cluster limpo + decisao (gate / Estagio 1)
-    protos = fit_prototypes(z_tr[tr["label"] == 0], k=cfg.decision.k_prototypes, seed=cfg.seed)
-    dec = PrototypeDecider(protos, 0.0, cfg.decision.target_precision)
-    fus = LogisticRegression(max_iter=1000).fit(
-        np.stack([dec.scores(z_va), ae_va], 1), va["label"])
-    fused_va = fus.predict_proba(np.stack([dec.scores(z_va), ae_va], 1))[:, 1]
-    # limiar primario = ponto de operacao do config (f1 balanceado por padrao)
-    if cfg.decision.objective == "precision":
-        thr = select_threshold_for_precision(fused_va, va["label"], cfg.decision.target_precision)[0]
+    # prototipo do cluster limpo + decisao (gate / Estagio 1). USA o decision.npz REAL do modelo
+    # (fusao + limiar calibrados na val LIVRE DE CONFOUND) -> os plots de outcome batem com o
+    # relatorio. Fallback: refit real_val se o bundle nao existir.
+    dnpz_path = Path(cfg.paths.models_dir) / "decision.npz"
+    if dnpz_path.exists():
+        dnpz = np.load(dnpz_path, allow_pickle=True)
+        protos = dnpz["prototypes"]
+        coef = dnpz["fusion_coef"].astype(float); intc = float(dnpz["fusion_intercept"][0])
+        thr = float(dnpz["threshold"][0])
+        dec = PrototypeDecider(protos, 0.0, cfg.decision.target_precision)
+        def fuse(sp_, ae_):
+            return 1.0 / (1.0 + np.exp(-(coef[0] * np.asarray(sp_) + coef[1] * np.asarray(ae_) + intc)))
+        print(f"[viz] usando decision.npz (calibracao real do modelo): limiar={thr:.3f}")
     else:
-        thr = select_threshold_max_f1(fused_va, va["label"])[0]
+        protos = fit_prototypes(z_tr[tr["label"] == 0], k=cfg.decision.k_prototypes, seed=cfg.seed)
+        dec = PrototypeDecider(protos, 0.0, cfg.decision.target_precision)
+        _fus = LogisticRegression(max_iter=1000).fit(np.stack([dec.scores(z_va), ae_va], 1), va["label"])
+        def fuse(sp_, ae_):
+            return _fus.predict_proba(np.stack([np.asarray(sp_), np.asarray(ae_)], 1))[:, 1]
+        thr = (select_threshold_for_precision if cfg.decision.objective == "precision"
+               else select_threshold_max_f1)(fuse(dec.scores(z_va), ae_va), va["label"],
+               *( (cfg.decision.target_precision,) if cfg.decision.objective == "precision" else () ))[0]
+        print("[viz] decision.npz ausente -> refit real_val (rode scripts/evaluate.py p/ gerar o bundle)")
+    fused_va = fuse(dec.scores(z_va), ae_va)
 
-    # ---- monta os grupos de pontos ----
-    groups = []  # (z, raw, classe, split, label_texto)
-    def add(zz, raw, classe, split, names):
-        groups.append({"z": zz, "raw": raw, "classe": classe, "split": split, "names": names})
+    # ---- monta os grupos de pontos (ae e categoria por grupo -> sem concatenacao manual fragil) ----
+    groups = []
+    def add(zz, raw, classe, split, names, ae, categoria):
+        groups.append({"z": zz, "raw": raw, "classe": classe, "split": split,
+                       "names": names, "ae": ae, "categoria": np.asarray(categoria, dtype=object)})
 
     m0 = tr["label"] == 0; m1 = tr["label"] == 1
-    add(z_tr[m0], tr["emb"][m0], "limpo", "train", [Path(p).name for p in tr["path"][m0]])
-    add(z_tr[m1], tr["emb"][m1], "erro_real", "train", [Path(p).name for p in tr["path"][m1]])
-    # 'parent' agora e' o stem da imagem-mae (string), 'applied' o tipo sintetico
+    add(z_tr[m0], tr["emb"][m0], "limpo", "train", [Path(p).name for p in tr["path"][m0]],
+        ae_tr[m0], ["clean"] * int(m0.sum()))
+    add(z_tr[m1], tr["emb"][m1], "erro_real", "train", [Path(p).name for p in tr["path"][m1]],
+        ae_tr[m1], tr["category"][m1].astype(str))
+    # 'parent' = stem da imagem-mae; 'applied' = tipo sintetico
     syn_names = [f"synth[{a}] <- {p}" for p, a in zip(syn["parent"], syn["applied"])]
-    add(z_sy, syn["emb"], "erro_sintetico", "train", syn_names)
+    add(z_sy, syn["emb"], "erro_sintetico", "train", syn_names, ae_sy, syn["category"].astype(str))
+    # REFLOW-clean (treino): variantes LIMPAS de layout legitimo (a tecnica anti-confound)
+    if z_rf is not None:
+        rf_names = [f"reflow[{a}] <- {p}" for p, a in zip(rf["parent"], rf["applied"])]
+        add(z_rf, rf["emb"], "limpo_reflow", "train", rf_names, ae_rf, ["clean"] * len(z_rf))
     mt0 = te["label"] == 0; mt1 = te["label"] == 1
-    add(z_te[mt0], te["emb"][mt0], "limpo", "test", [Path(p).name for p in te["path"][mt0]])
-    add(z_te[mt1], te["emb"][mt1], "erro_real", "test", [Path(p).name for p in te["path"][mt1]])
+    add(z_te[mt0], te["emb"][mt0], "limpo", "test", [Path(p).name for p in te["path"][mt0]],
+        ae_te[mt0], ["clean"] * int(mt0.sum()))
+    add(z_te[mt1], te["emb"][mt1], "erro_real", "test", [Path(p).name for p in te["path"][mt1]],
+        ae_te[mt1], te["category"][mt1].astype(str))
 
     Z = np.concatenate([g["z"] for g in groups])
     RAW = np.concatenate([g["raw"] for g in groups])
     classe = np.concatenate([[g["classe"]] * len(g["z"]) for g in groups])
     split = np.concatenate([[g["split"]] * len(g["z"]) for g in groups])
     names = sum([g["names"] for g in groups], [])
+    categoria = np.concatenate([g["categoria"] for g in groups])
     sp = dec.scores(Z)
-    ae_all = np.concatenate([ae_tr[m0], ae_tr[m1], ae_sy, ae_te[mt0], ae_te[mt1]])
-    fused = fus.predict_proba(np.stack([sp, ae_all], 1))[:, 1]
-
-    # categoria por ponto (alinhada a Z): clean / categoria real / categoria sintetica
-    categoria = np.concatenate([
-        np.array(["clean"] * int(m0.sum())),
-        tr["category"][m1].astype(str),
-        syn["category"].astype(str),
-        np.array(["clean"] * int(mt0.sum())),
-        te["category"][mt1].astype(str),
-    ])
+    ae_all = np.concatenate([g["ae"] for g in groups])
+    fused = fuse(sp, ae_all)
     # prototipos POR categoria (Estagio 2) — fit sobre os erros REAIS de treino
     cat_protos = cat_proto_ids = cat_proto2 = None
     if multiclass:
@@ -195,7 +217,7 @@ def main() -> None:
     print("Reduzindo DINOv2 cru...")
     raw2 = reduce_2d(RAW)
 
-    true = np.where(classe == "limpo", 0, 1)
+    true = np.where(np.isin(classe, ["limpo", "limpo_reflow"]), 0, 1)  # reflow = limpo (label 0)
     outcome = _outcome(fused, true, thr)   # no limiar primario (config)
 
     # separabilidade objetiva por distancia ao "normal": ANTES (cru) vs DEPOIS (z)
@@ -208,7 +230,7 @@ def main() -> None:
 
     # ---- figuras estaticas de apoio (usadas no relatorio) ----
     _static_embedding(rep, raw2, z2, proto2, classe)
-    _static_decision(rep, sp, classe, thr, te, z_te, dec, fus, ae_te)
+    _static_decision(rep, sp, classe, thr, te, z_te, dec, fuse, ae_te)
     _static_outcome(rep, z2, proto2, outcome, split)
 
     # ---- MULTI-CLUSTER: espaco colorido por CATEGORIA + protótipos de categoria ----
@@ -262,8 +284,10 @@ def _static_embedding(rep, raw2, z2, proto2, classe):
     fig, ax = plt.subplots(1, 2, figsize=(15, 6.5))
     for title, xy, a in [("Raw DINOv2 (BEFORE) — clean and errors mixed", raw2, ax[0]),
                          ("z learned by the siamese head (AFTER) — clean forms a cluster", z2, ax[1])]:
-        for c in ["erro_sintetico", "erro_real", "limpo"]:
+        for c in ["erro_sintetico", "erro_real", "limpo_reflow", "limpo"]:
             mk = classe == c
+            if not mk.any():
+                continue
             a.scatter(xy[mk, 0], xy[mk, 1], s=14, alpha=0.6, c=COLORS[c], label=CLASS_LABEL[c], edgecolors="none")
         a.set_title(title); a.set_xticks([]); a.set_yticks([]); a.legend(loc="best", fontsize=8)
     ax[1].scatter(proto2[:, 0], proto2[:, 1], s=400, marker="*", c=COLORS["prototipo"],
@@ -348,16 +372,19 @@ def _interactive_categories(rep, raw2, z2, cat_proto2, cat_proto_ids, categoria,
     fig.write_html(rep / "categorias_apresentacao.html")
 
 
-def _static_decision(rep, sp, classe, thr, te, z_te, dec, fus, ae_te):
+def _static_decision(rep, sp, classe, thr, te, z_te, dec, fuse, ae_te):
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(1, 2, figsize=(14, 5))
-    for c in ["limpo", "erro_real", "erro_sintetico"]:
-        ax[0].hist(sp[classe == c], bins=30, alpha=0.55, color=COLORS[c], label=CLASS_LABEL[c])
+    for c in ["limpo", "limpo_reflow", "erro_real", "erro_sintetico"]:
+        mk = classe == c
+        if not mk.any():
+            continue
+        ax[0].hist(sp[mk], bins=30, alpha=0.55, color=COLORS[c], label=CLASS_LABEL[c])
     ax[0].set_title("Distance to the CLEAN prototype (decision rule)")
     ax[0].set_xlabel("score = 1 − cos(z, prototype)"); ax[0].legend(fontsize=8)
     # curva PR no test (fusao)
-    fused_te = fus.predict_proba(np.stack([dec.scores(z_te), ae_te], 1))[:, 1]
+    fused_te = fuse(dec.scores(z_te), ae_te)
     p, r, _ = precision_recall_curve(te["label"], fused_te)
     ax[1].plot(r, p); ax[1].set_title("Precision–Recall (real TEST, fusion)")
     ax[1].set_xlabel("recall"); ax[1].set_ylabel("precision"); ax[1].set_ylim(0, 1.02)
@@ -367,8 +394,10 @@ def _static_decision(rep, sp, classe, thr, te, z_te, dec, fus, ae_te):
 def _interactive(rep, z2, proto2, classe, split, names, sp, fused, thr):
     import plotly.graph_objects as go
     fig = go.Figure()
-    for c in ["limpo", "erro_real", "erro_sintetico"]:
+    for c in ["limpo", "limpo_reflow", "erro_real", "erro_sintetico"]:
         mk = classe == c
+        if not mk.any():
+            continue
         custom = np.stack([np.array(names)[mk], split[mk], sp[mk].round(3),
                            fused[mk].round(3)], axis=1)
         fig.add_trace(go.Scatter(
@@ -386,7 +415,7 @@ def _interactive(rep, z2, proto2, classe, split, names, sp, fused, thr):
 
 
 _PAGE_TEMPLATE = """<!doctype html>
-<html lang="pt-br">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -450,7 +479,8 @@ _PAGE_TEMPLATE = """<!doctype html>
        <b>drag</b> to zoom · <b>hover</b> a point to see the file,
        its distance to the prototype and p(error).<br>
        <span style="opacity:.85">The 2D map is a <b>projection</b> (UMAP) for visualization only; the real separation is
-       the distance above. Held-out <b>test</b> performance (in the report) is AUROC 0.90.</span></p>
+       the distance above. Honest held-out numbers are in <b>EXPERIMENT_RESULTS.md</b> (prototype gate
+       AUROC ≈ 0.73; confound-free synthetic ≈ 0.72) — the global metric is dominated by a resolution confound.</span></p>
   </div>
 </div>
 </body>
@@ -467,9 +497,10 @@ def _interactive_presentation(rep, raw2, z2, proto2, classe, split, names, sp, f
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
-    LABEL = {"limpo": "Clean (no error)", "erro_real": "Real errors",
-             "erro_sintetico": "Synthetic errors"}
-    order = ["limpo", "erro_real", "erro_sintetico"]
+    LABEL = {"limpo": "Clean (no error)", "limpo_reflow": "Clean (reflow)",
+             "erro_real": "Real errors", "erro_sintetico": "Synthetic errors"}
+    order = [c for c in ["limpo", "limpo_reflow", "erro_real", "erro_sintetico"]
+             if (classe == c).any()]
     names = np.asarray(names)
 
     fig = make_subplots(

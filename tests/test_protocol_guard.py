@@ -28,6 +28,7 @@ def teardown_function(_):
 def test_is_test_artifact_detection():
     assert is_test_artifact("artifacts/embeddings/test.npz")
     assert is_test_artifact("a/b/test_synth.npz")
+    assert is_test_artifact("artifacts/embeddings/test_reflow.npz")   # sonda reflow held-out
     assert is_test_artifact("data/processed/test/real/clean/x.png")
     assert is_test_artifact("data/splits/test.csv")
     # nao confundir com nomes parecidos

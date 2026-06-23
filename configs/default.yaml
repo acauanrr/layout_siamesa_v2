@@ -21,10 +21,21 @@ backbone:
   batch_size: 16
 
 synthetic:
-  enabled: true            # injeta erros sinteticos em imagens limpas (anti-confound)
+  enabled: true            # injeta erros sinteticos em imagens limpas (anti-confound, lado do ERRO)
   n_variants: 4
   max_errors_per_image: 2
   seed: 0
+  # --- REFLOW: negativos com layout legitimo (anti-confound pelo lado LIMPO) — ver reflow.py ---
+  reflow_clean: true       # variantes LIMPAS (scroll/dual-pane/aspect/espacamento) como negativos
+  n_reflow_variants: 4     # variantes de reflow por imagem limpa de treino
+  max_reflow_ops: 2        # compoe 1..N operadores por variante
+  reflow_ops:              # pesos (0 desliga). ar_relayout/two_pane QUEBRAM o confound de resolucao
+    scroll_shift: 1.0
+    two_pane: 0.6
+    ar_relayout: 1.0
+    band_jitter: 1.0
+  p_reflow_pos: 0.0        # LEGADO/ablacao: erro injetado SOBRE reflow (negativo no legado -> off)
+  benign_augment: false    # round-trip de resolucao + jitter foto-metrico nas limpas (opcional)
 
 head:
   hidden: 256
@@ -61,5 +72,12 @@ decision:
   k_prototypes: 3          # selecao honesta: k nao afeta o gate (val_synth_gate); k=3 da F1 de
                            # categoria marginalmente melhor que k=1. Mantido em 3.
   objective: f1            # "f1" = ponto BALANCEADO (acuracia/precisao justas p/ comparar)
-                           # "precision" = modo alta precisao (zero falso-alarme)
+                           # "precision" = alta precisao (usa target_precision)
+                           # "specificity" = specificity-first (usa target_specificity)
   target_precision: 0.95   # usado apenas quando objective=precision
+  target_specificity: 0.80 # usado apenas quando objective=specificity
+  # CALIBRACAO da fusao+limiar (SEMPRE na val; nunca no teste). "confound_free" = limpas-val +
+  # val_synth(erro) + val_reflow(limpo) -> limiar ESTAVEL (corrige FPR alto). "real_val" = legado.
+  calibrate_on: confound_free
+  stage2_method: prototype   # decisor canonico do Estagio 2 (categoria): prototype | aux
+  coarse_taxonomy: true      # avalia E2 na taxonomia GROSSA (3 super-classes) como primaria

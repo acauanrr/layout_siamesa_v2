@@ -2,60 +2,72 @@
 
 ### Relatório de apresentação para a equipe do projeto
 
-> **Objetivo:** dada uma imagem/print de tela de celular, decidir com **alta precisão** se a
-> tela **tem erro de layout** ou **não tem** — uma classificação **binária**, usando uma
-> **rede siamesa** com o backbone **DINOv2 ViT-S/14**.
+> **Objetivo:** dada uma imagem/print de tela de celular, decidir em **dois estágios**:
+> **(E1)** a tela **tem erro de layout** ou **não tem** (gate binário de alta precisão); e,
+> quando tem, **(E2)** **de que tipo** é o erro (categoria). Tudo sobre uma **rede siamesa**
+> com o backbone **DINOv2 ViT-S/14 congelado**.
 
 📐 Diagrama do pipeline: bloco Mermaid embutido na §3-bis abaixo (renderiza no GitHub/GitLab/VS Code) · fonte em [`pipeline.mmd`](pipeline.mmd)
-🎯 Visualização para a reunião: `clusters_apresentacao.html` (gerado por `scripts/visualize.py`) — **antes×depois interativo**, com o roteiro do que falar (ver §6.8)
-🔬 Detalhes técnicos e decisões: [`DESIGN.md`](DESIGN.md)
+🎯 Visualização para a reunião: `clusters_apresentacao.html` / `categorias_apresentacao.html` (gerados por `scripts/visualize.py`)
+🔬 Detalhes técnicos e decisões: [`DESIGN.md`](DESIGN.md) · 🧪 técnicas portadas do projeto legado: [`DESIGN.md` §11](DESIGN.md)
+
+> ⚠️ **Esta versão (jun/2026) corrige números REVOGADOS.** Versões antigas deste relatório
+> traziam acc 0.85 / AUROC 0.90 ("test 54 imgs") — **inválidos**: vinham de *split com
+> vazamento* + *seleção que enxergava o teste* (auditoria Fase 0). Os números abaixo são o
+> **held-out honesto** (teste trancado, seleção só na validação, avaliado **1×**).
 
 ---
 
 ## 1. Sumário executivo
 
-Construímos um detector binário de erros de layout em telas de UI. Durante o
-desenvolvimento descobrimos que **o dado tem um confound quase perfeito**: as telas
-*sem-erro* são todas de **um único dispositivo/resolução** (2076×2152), enquanto as
-*com-erro* são heterogêneas. Por isso, uma regra trivial ("a resolução é diferente de
-2076×2152?") já atinge **98% de acurácia** — sem olhar o layout. Qualquer modelo ingênuo
-"acertaria" por esse atalho, **sem detectar erro de verdade**.
+Construímos um detector de erros de layout em telas de UI em **dois estágios** (gate "tem
+erro?" → categoria do erro) sobre uma rede siamesa. O achado que organiza todo o projeto: **o
+dado tem um confound quase perfeito** — as telas *sem-erro* são **todas de um único
+dispositivo** (2076×2152) e as *com-erro* são heterogêneas. Uma regra trivial ("a resolução é
+≠ 2076×2152?") já dá **AUROC 0.99** sem olhar o layout. Logo, **qualquer métrica global é ~98%
+trapaça**; só medições **livres de confound** (sintético casado em resolução, subconjunto
+controlado, falseabilidade) dizem se há detecção **real**.
 
-A solução central foi **injetar erros sintéticos nas próprias telas limpas** (mesma
-resolução), forçando o modelo a aprender o **conteúdo** do erro, não o dispositivo. O
-resultado é um detector que:
+Nesta rodada **consolidamos o modelo e portamos três técnicas comprovadas do projeto
+anterior** (`~/iats/layout_siamesa`), com ganhos medidos no **held-out honesto**:
 
-| Métrica (test held-out, 54 imgs) | Valor |
-|---|---|
-| **Acurácia** | **0.85** (IC 95%: 0.75–0.94) |
-| **Precisão / Recall / F1** | **0.86 / 0.86 / 0.86** |
-| **AUROC / AP (livres de limiar)** | **0.90 / 0.92** |
-| Detecção de erro **livre de confound** (sintético) | **AUROC 0.88 · AP 0.97** |
-| precision@10 (topo do ranking) | **1.00** |
+| Eixo | Antes | **Depois** | O que mudou |
+|---|---|---|---|
+| **Ponto de operação** (especificidade) | 0.12 (FPR 0.88) | **0.27** (FPR 0.73) | **Calibração livre de confound** (na val sintética, não em 26 limpas) |
+| **bAcc / MCC** (held-out) | 0.54 / 0.17 | **0.57 / 0.18** | idem |
+| **Rastreamento do confound** (falseab.) | 0.72 (≈ erro) | **0.68** (val 0.76→0.62) | **Reflow**: variantes limpas em outras resoluções |
+| **Detecção real** (sintético livre de confound) | 0.695 | **0.723** | reflow + calibração |
+| **Estágio 2 (categoria)** | confuso (2 métodos paralelos, F1 fino 0.39) | **claro** (1 método; fino 0.36 + grosso 0.62, IC 0.38–0.76) | **Consolidação** (clareza); o 0.62 é a tarefa mais fácil de **3** super-classes, não ganho de qualidade |
 
-> Estes são os números no **ponto de operação padrão (balanceado)** — o justo para comparar
-> com outros modelos. Há também um modo opcional de **alta precisão** (1.00, recall 0.50)
-> para quando falso-alarme é caro. Ver §6.
-
-**Mensagem para a equipe:** o modelo entrega **acurácia 0.85 / precisão 0.86 / AUROC 0.90**
-de forma **honesta** — sem explorar o confound de resolução do dataset (que sozinho daria
-98%, ver §6.3). A maior alavanca de melhoria **não é arquitetura, é dado**: coletar telas
-*limpas* de outros dispositivos/resoluções/fotos. Detalhes na §8.
+**Mensagem para a equipe (honesta):**
+1. **O conserto mais forte foi a calibração do ponto de operação** — o limiar antigo, fixado
+   em 26 telas limpas, **inundava de falso-alarme** (especificidade 0.12). Calibrando na
+   **validação livre de confound**, a especificidade **dobra** sem perder F1. (Prova: no mesmo
+   modelo, a calibração antiga dá especificidade **0.00** — sinalizava *toda* tela limpa como erro.)
+2. **O Estágio 2 ficou claro e reportável:** **um único método canônico** (protótipo de
+   categoria) e **taxonomia mais grossa** (3 super-classes) — F1-macro **0.62** (vs 0.39 do
+   desenho antigo, que reportava dois métodos em paralelo).
+3. **O reflow reduz o rastreamento do confound** (a tese "detecta conteúdo, não device"), com
+   um trade-off honesto de especificidade — documentado na ablação (§6.6).
+4. O **teto do gate continua limitado por DADO** (classe limpa = 1 device): subir o AUROC
+   depende de **telas limpas diversas**, não de mais tuning (§7–8).
 
 ---
 
 ## 2. O problema e os dados
 
-**Tipos de erro** (não precisamos distinguir qual — só erro vs não-erro):
-Black region (faixas pretas) · Empty space (regiões vazias) · Disordered layout
-(desalinhamento) · Overlay (sobreposição) · Cropped (corte).
+**6 categorias de erro** (`data/input/errors_dataset/<categoria>/`, usadas no Estágio 2):
+black bars · disordered layout · distortion · empty space · orientation · overlay.
 
-**Dataset** (360 imagens):
+**Dataset** (**541 imagens reais únicas**, após limpeza de marcações + dedup):
 - `no_erros`: **172** telas limpas, **todas 2076×2152** (mesmo device, telas de onboarding).
-- `with_errors`: **188** telas com erro — **74 resoluções** distintas, 47 fotos de câmera,
-  form factors fold/unfold/laptop/tent, 16 "competitor", 2 com caixa vermelha desenhada.
-- Split **agrupado por ticket** IKSWW (várias imagens por bug nunca cruzam train/test):
-  **train 252 · val 54 · test 54**, com **0 vazamento** verificado.
+- `errors_dataset`: **369** telas com erro por categoria — **heterogêneas** em resolução,
+  fotos de câmera, form factors fold/unfold/laptop/tent.
+- Split **agrupado** (erros por ticket IKSWW; limpas por **sessão+near-duplicate**) e
+  **estratificado por categoria**: **train 330** (105 limpas + 225 erros) · **val 81** (26+55)
+  · **test 130** (41+89), com **0 vazamento** verificado (`tests/test_split_isolation.py`).
+- Augmentação de treino (não conta como dado real): **+420 sintéticos-erro** + **+420
+  limpas-reflow** (anti-confound dos dois lados).
 
 ---
 
@@ -92,18 +104,20 @@ flowchart TB
     subgraph S1["1 · Dados de entrada"]
         direction TB
         D1["no_erros — 172 telas LIMPAS<br/>todas 2076×2152 (um único device)"]:::dados
-        D2["with_errors — 188 telas COM ERRO<br/>74 resoluções · fotos · fold/laptop/tent"]:::dados
-        SPLIT["Split AGRUPADO por ticket (IKSWW)<br/>0 vazamento · estratificado<br/>train 252 · val 54 · test 54"]:::dados
+        D2["errors_dataset — 369 telas COM ERRO<br/>6 categorias · resoluções · fotos · fold/laptop/tent"]:::dados
+        SPLIT["Split AGRUPADO (ticket + sessão) · estratificado<br/>0 vazamento<br/>train 330 · val 81 · test 130"]:::dados
         D1 --> SPLIT
         D2 --> SPLIT
     end
 
-    %% ============ 2. SINTETICOS (ANTI-CONFOUND) ============
-    subgraph S2["2 · Erros sintéticos — a arma anti-confound"]
+    %% ============ 2. SINTETICOS (ANTI-CONFOUND) — DOIS LADOS ============
+    subgraph S2["2 · Anti-confound dos DOIS lados (erro + limpo)"]
         direction TB
         WHY["⚠ Confound: toda tela LIMPA é 2076×2152 (1 device).<br/>Sem tratar, o modelo trapaceia detectando a RESOLUÇÃO (≈98%)."]:::warn
-        SYN["🧪 Injeta 5 tipos de erro nas próprias telas LIMPAS<br/>black region · empty space · overlay · disorder · cropped<br/>na MESMA resolução do original (par casado)"]:::synth
+        SYN["🧪 lado do ERRO: injeta 5 tipos de erro nas LIMPAS<br/>black region · empty space · overlay · disorder · cropped<br/>na MESMA resolução (par casado)"]:::synth
+        REF["🔄 lado do LIMPO (REFLOW): variantes LIMPAS de layout<br/>legítimo — scroll · dual-pane · outro aspect-ratio · espaçamento<br/>(label = limpo) → quebra o confound pela classe limpa"]:::synth
         WHY -.-> SYN
+        WHY -.-> REF
     end
 
     %% ============ 3. PRE-PROCESSAMENTO + BACKBONE ============
@@ -121,24 +135,26 @@ flowchart TB
         direction TB
         HEAD["🎯 Cabeça de projeção g(·) COMPARTILHADA<br/>LayerNorm → Linear 1152→256 → GELU<br/>→ Linear 256→128 → L2-normaliza"]:::head
         Z["z (128-d) na hiperesfera unitária<br/>espaço métrico aprendido"]:::head
-        AUX["Cabeça auxiliar<br/>Linear 128→1<br/>detector binário direto"]:::head
-        LOSS["PERDA (treino) = SupCon(z) + 0.3 · BCE(aux)<br/>SupCon aproxima a MESMA classe<br/>e afasta classes diferentes"]:::loss
+        AUX["Cabeça auxiliar<br/>Linear 128→7 (softmax: clean + 6 categorias)<br/>P(erro) = 1 − P(clean)"]:::head
+        LOSS["PERDA (treino) = SupCon(z) + 0.6 · CE(aux)<br/>SupCon agrupa por CATEGORIA<br/>limpo+reflow juntos · erros afastados"]:::loss
         HEAD ==> Z
         Z --> AUX
         Z --> LOSS
         AUX --> LOSS
     end
 
-    %% ============ 5. DECISAO (PROTOTIPO / CLUSTERING) ============
-    subgraph S5["5 · Decisão por protótipo — clustering no espaço aprendido"]
+    %% ============ 5. DECISAO EM DOIS ESTAGIOS (PROTOTIPO / CLUSTERING) ============
+    subgraph S5["5 · Decisão em DOIS estágios — clustering no espaço aprendido"]
         direction TB
         PROTO["Protótipo(s) do cluster LIMPO<br/>k-means sobre z das telas limpas (treino)<br/>resume o que é normal"]:::decis
-        SCORE["score = 1 − cos(z, protótipo mais próximo)<br/>longe do limpo ⇒ anomalia"]:::decis
-        FUS["Fusão calibrada na validação<br/>(score do protótipo, logit auxiliar) → p(erro)"]:::decis
-        THR["Limiar de operação (escolhido na validação)<br/>balanceado por padrão · alta precisão opcional"]:::decis
-        DEC{"erro?<br/>p(erro) ≥ limiar"}:::decis
+        SCORE["score = 1 − cos(z, protótipo limpo mais próximo)<br/>longe do limpo ⇒ anomalia"]:::decis
+        FUS["Fusão calibrada na VAL LIVRE DE CONFOUND<br/>(score do protótipo, P(erro) auxiliar) → p(erro)"]:::decis
+        THR["Limiar de operação (val livre de confound)<br/>balanceado · alta precisão · specificity-first"]:::decis
+        DEC{"E1 · erro?<br/>p(erro) ≥ limiar"}:::decis
+        CAT["E2 · categoria (só se E1=erro)<br/>protótipo de categoria mais próximo<br/>3 super-classes: região morta · deslocado · geometria"]:::decis
         SCORE ==> FUS ==> THR ==> DEC
         PROTO --> SCORE
+        DEC ==>|"sim"| CAT
     end
 
     %% ============ 6. SAIDAS / VISUALIZACOES ============
@@ -151,13 +167,15 @@ flowchart TB
     end
 
     %% ============ RESULTADO (o retorno do pipeline) ============
-    RES["<b>RESULTADO</b> — test held-out (54 imgs)<br/>acc 0.85 · prec 0.86 · rec 0.86 · F1 0.86<br/>AUROC 0.90 · AP 0.92<br/>sintético livre de confound: AUROC 0.88 · AP 0.97"]:::result
+    RES["<b>RESULTADO</b> — held-out honesto (130 imgs · teste trancado, 1×)<br/>E1 gate: AUROC proto 0.73 · sintético livre de confound 0.72 (AP 0.89)<br/>ponto de operação: especificidade 0.27 · bAcc 0.57 (calibração livre de confound)<br/>E2 categoria: F1-macro 0.62 (taxonomia grossa, 3 super-classes)"]:::result
 
     %% ===================== LIGACOES ENTRE ETAPAS =====================
-    D1 -.->|"gera pares idênticos em resolução"| SYN
+    D1 -.->|"gera erros (mesma resolução)"| SYN
+    D1 -.->|"gera limpas-reflow"| REF
 
     SPLIT ==> PRE
     SYN -->|"(somente no treino)"| PRE
+    REF -->|"(somente no treino)"| PRE
 
     CACHE ==> HEAD
 
@@ -254,51 +272,65 @@ confirmou.)
 
 ---
 
-## 4. Como a rede siamesa funciona neste projeto
+## 4. Como o modelo funciona — UM espaço, DOIS estágios
 
-Uma rede siamesa clássica compara **duas entradas** por dois ramos de **pesos
-compartilhados** e mede a relação no espaço de embeddings. A descrição genérica "parear o
-alvo com **uma** referência boa e ver se diferem" **não se aplica aqui**, porque a classe
-*sem-erro* é visualmente diversa (apps diferentes) — duas telas limpas distintas seriam
-legitimamente "diferentes" mesmo ambas corretas, gerando **falso-positivo estrutural**.
+A peça única e compartilhada é a **cabeça de projeção `g(·)`** (a "siamesa"): a **mesma
+função** mapeia o embedding DINOv2 de **qualquer** tela para um vetor **`z` de 128-d na
+hiperesfera** (L2-normalizado). Toda a decisão — gate e categoria — é **distância a
+protótipos nesse espaço `z`**. Essa é a narrativa única que torna o desenho fácil de explicar:
 
-**Nossa formulação (siamesa one-class):**
+> **Tudo é "quão perto estou de um protótipo no espaço aprendido `z`".**
+> O Estágio 1 mede a distância ao protótipo **limpo**; o Estágio 2, ao protótipo de cada
+> **categoria de erro**.
 
-1. **Backbone DINOv2 ViT-S/14 congelado** extrai um embedding de 1152-d (CLS + média/desvio
-   dos patch tokens). É o mesmo extrator para qualquer imagem — calculado **uma vez** e
-   cacheado.
-2. **Cabeça de projeção `g(·)` compartilhada** (a parte treinável, ~330k params) mapeia o
-   embedding para um vetor **`z` de 128-d na hiperesfera** (L2-normalizado). A "siamesa" é
-   exatamente isto: a **mesma função `g`** aplicada a qualquer tela; comparar duas telas =
-   comparar `z₁` e `z₂`.
-3. O espaço é treinado para que **telas limpas formem um cluster compacto** e **erros caiam
-   fora** — veja `embedding_space.png` e, interativo, **`clusters_apresentacao.html`** (antes×depois):
-   separar erro por **distância ao protótipo** passa de **AUROC 0.58** (DINOv2 cru) para **0.94** no `z` aprendido.
-4. **Decisão (a ideia de clustering da equipe):** resumimos o cluster limpo em **protótipos**
-   (k-means) e medimos a **distância** da tela-alvo ao protótipo mais próximo. Longe do
-   limpo → erro. Isto é uma comparação **âncora (alvo) vs protótipos** — a versão correta da
-   siamesa para este problema.
+**Por que não comparar contra "uma" tela de referência boa?** Porque a classe *sem-erro* é
+visualmente diversa (apps diferentes): duas telas limpas distintas seriam legitimamente
+"diferentes" mesmo ambas corretas → **falso-positivo estrutural**. Por isso comparamos contra
+**protótipos do cluster limpo** (siamesa *one-class*), não contra uma imagem única. O
+**reflow** (§5) reforça exatamente isto: ensina que "mesmo conteúdo, layout diferente = ainda
+limpo".
+
+**Como o espaço é construído (treino, roda 1×):**
+1. **DINOv2 ViT-S/14 congelado** extrai 1152-d (CLS + média/desvio dos patch tokens) — mesmo
+   extrator p/ qualquer imagem, calculado uma vez e **cacheado**.
+2. **Cabeça `g(·)`** (única parte treinável, ~330k params) → `z` (128-d). Treinada com
+   **Supervised Contrastive (SupCon)** por **categoria**: aproxima telas da mesma classe e
+   afasta classes diferentes. Limpas reais **e** limpas-reflow caem no mesmo cluster; cada
+   categoria de erro forma o seu.
+
+**Estágio 1 — gate "tem erro?" (alta precisão):**
+- **Protótipos do cluster limpo** (k-means sobre `z` das limpas de treino). `score = 1 −
+  cos(z, protótipo limpo mais próximo)`: longe do limpo ⇒ anomalia.
+- **Fusão calibrada** `[score do protótipo, P(erro) da cabeça auxiliar]` → `p(erro)`,
+  ajustada na **validação livre de confound** (limpas + sintéticos-erro + reflow). **Limiar**
+  fixado nessa mesma validação (balanceado / alta precisão / specificity-first).
+- `p(erro) ≥ limiar` ⇒ **ERRO**.
+
+**Estágio 2 — categoria (só roda quando E1 = ERRO):**
+- **UM método canônico** (decisão consolidada): a categoria é a do **protótipo de categoria
+  mais próximo** em `z` (mesma matemática do E1 — `1 − cos`). A cabeça auxiliar fica como
+  *diagnóstico*, não como segundo decisor.
+- **Taxonomia primária = 3 super-classes** (agrupadas pelo princípio de não-colisão):
+  **região morta** (black bars + empty space) · **conteúdo deslocado** (overlay + disordered)
+  · **geometria global** (distortion + orientation). A taxonomia fina de 6 classes é reportada
+  como **secundária/exploratória** (tem teto estrutural — ver §6.5).
+
+> **Por que a categoria virou "protótipo" e não a cabeça softmax?** Para a equipe: assim o
+> projeto inteiro tem **uma só ideia** — distância a protótipos no espaço `z`. O desenho antigo
+> reportava *dois* métodos (protótipo **e** softmax) em paralelo, com F1 quase iguais — era a
+> fonte da confusão. Agora há **um** decisor.
 
 ### 4.1. Âncora/Triplet? Qual a função de erro?
 
-Pergunta direta da equipe — resposta direta:
-
-- **NÃO usamos a Triplet Loss clássica** (com triplas âncora–positivo–negativo amostradas
-  explicitamente).
-- Usamos a **Supervised Contrastive Loss (SupCon)**, que é uma **generalização** da ideia de
-  âncora/triplet: dentro de cada *batch*, **cada amostra atua como âncora**; todas da
-  **mesma classe** são positivos e todas de **classes diferentes** são negativos. É
-  "anchor-based" no sentido de batch, mas não amostra triplas individuais — e é mais estável
-  com poucos dados, pois usa **todos** os positivos/negativos do batch de uma vez.
-- **Função de erro total:** &nbsp; **`L = SupCon(z) + 0.3 · BCE(cabeça_auxiliar)`**
-  - `SupCon(z)`: molda o espaço métrico (limpo junto, erro afastado).
-  - `BCE` da **cabeça auxiliar** `Linear(128→1)`: um detector binário direto, que não depende
-    do banco de protótipos.
-- O código também inclui a **contrastiva de pares** (Hadsell) como opção (`losses.py`), e a
-  **conceito de âncora aparece na inferência**: a tela-alvo (âncora) é comparada aos
-  protótipos do cluster limpo.
-
-Fórmula da SupCon (para uma âncora *i*, com positivos *P(i)* = mesma classe):
+- **NÃO** usamos Triplet clássica. Usamos **SupCon**, uma generalização: em cada *batch* cada
+  amostra é âncora; mesma classe = positivos, classes diferentes = negativos. Mais estável com
+  poucos dados (usa todos os pares do batch) e a **âncora reaparece na inferência** (a tela
+  comparada aos protótipos).
+- **Função de erro:** &nbsp; **`L = SupCon(z) + 0.6 · CE(cabeça_auxiliar)`** (multi-classe:
+  clean + 6 categorias). A `CE` da cabeça auxiliar é um classificador direto (o gate usa
+  `P(erro) = 1 − P(clean)`); o SupCon molda o espaço métrico que sustenta os protótipos.
+- As classes auxiliares funcionam como **regularização** (lição do legado: o gate binário-puro
+  *satura* o sintético e não transfere — manter o vocabulário de categorias estabiliza).
 
 ```
 L_supcon = - (1/|P(i)|) · Σ_{p∈P(i)} log( exp(z_i·z_p / τ) / Σ_{a≠i} exp(z_i·z_a / τ) )
@@ -308,138 +340,153 @@ L_supcon = - (1/|P(i)|) · Σ_{p∈P(i)} log( exp(z_i·z_p / τ) / Σ_{a≠i} ex
 
 ## 5. Diferencial do modelo proposto
 
-1. **Injeção sintética anti-confound** — o ponto mais importante. Em vez de deixar o modelo
-   "trapacear" pela resolução, geramos pares (limpa, corrompida) **idênticos em
-   resolução/device**, isolando o sinal de conteúdo. (Ver `artifacts/synthetic_images/`.)
-2. **Siamesa one-class com protótipos** — incorpora a ideia de clustering da equipe sem a
-   armadilha da "referência única".
-3. **Ponto de operação configurável** — por padrão usamos o limiar **balanceado** (F1 máximo
-   na validação) para métricas justas; um modo opcional de **alta precisão** está disponível
-   (`decision.objective`) para quando o falso-alarme é caro.
-4. **Avaliação honesta** — não vendemos a métrica global (que é ~98% confound). Reportamos
-   sempre **baselines de confound**, subconjunto controlado, **teste sintético livre de
-   confound**, e **testes de falseabilidade**.
-5. **Explicabilidade** — a visualização interativa **antes×depois** (`clusters_apresentacao.html`)
-   mostra a clusterização funcionando — separar por **distância ao protótipo** sobe de **AUROC 0.58**
-   (DINOv2 cru) para **0.94** no `z` aprendido — e os heatmaps mostram *onde* está o erro
-   (PatchCore + detector geométrico).
+1. **Anti-confound dos DOIS lados.** (a) Pelo lado do **erro**: injetamos 5 tipos de erro nas
+   limpas, na **mesma resolução** (par casado) — isola o conteúdo. (b) **NOVO — pelo lado do
+   LIMPO (reflow):** geramos variantes **limpas** de layout legítimo (scroll, dual-pane, outro
+   aspect-ratio, espaçamento) — algumas em **outras resoluções**. Resultado: a classe limpa
+   deixa de ser exclusivamente 2076×2152, **quebrando o atalho da resolução pelos dois lados**.
+   (Técnica portada do projeto legado, onde foi o maior ganho; ver [`DESIGN.md` §11](DESIGN.md).)
+2. **Siamesa one-class com protótipos, em DOIS estágios** — uma só ideia (distância a
+   protótipos no espaço `z`) para o gate (E1) e a categoria (E2), sem a armadilha da
+   "referência única".
+3. **NOVO — Calibração do ponto de operação na validação LIVRE DE CONFOUND.** O limiar/fusão
+   deixou de ser fixado em 26 telas limpas (instável → falso-alarme) e passou a usar limpas +
+   sintéticos-erro + reflow da validação. **Dobra a especificidade** no held-out sem perder F1.
+   (Lição do legado: calibrar na validação sintética, nunca no teste.)
+4. **NOVO — Estágio 2 consolidado**: **um** decisor canônico (protótipo de categoria) +
+   **taxonomia grossa** (3 super-classes) com poder estatístico. Sai do desenho confuso de dois
+   métodos em paralelo.
+5. **Avaliação honesta (mantida e ampliada)** — global é ~98% confound, então reportamos
+   sempre **baselines de confound**, **subconjunto controlado**, **sintético livre de
+   confound**, **falseabilidade** e agora também: comparação de calibração lado a lado, **sonda
+   de falso-positivo em reflow** (o gate não deve acender em layout legítimo) e **IC95 bootstrap**.
+6. **Protocolo anti-vazamento blindado** — teste **trancado** programaticamente
+   (`siamese.protocol`); seleção/calibração **só na validação**; split agrupado por
+   ticket/sessão. Os números são processados **uma única vez** no teste.
 
 ---
 
 ## 6. Resultados obtidos
 
-Test = **54 imagens held-out** (nunca vistas no treino), agrupado por ticket. (`scripts/evaluate.py`)
+Held-out = **130 imagens** (41 limpas + 89 erros), agrupado por ticket/sessão, **teste
+trancado e processado 1×** (`scripts/evaluate.py --final-test`). Seleção/calibração **só na
+validação**. Compara-se contra o **baseline pré-melhorias** (sem-reflow, calibração legada).
 
-> **Estes são os números do modelo — claros e diretos.** O modelo produz uma probabilidade
-> `p(erro)` por imagem; classificamos com o **limiar balanceado** (que maximiza F1 na
-> validação), que é o ponto de operação **padrão** e o **justo para comparar** com outros
-> modelos (não otimizado para nenhuma métrica em particular).
+> ⚠️ **Leia a métrica certa.** A métrica **global** neste dataset é ~98% confound (a regra de
+> resolução sozinha dá AUROC 0.99). Lidere SEMPRE pelas métricas **livres de confound**
+> (sintético casado em resolução, subconjunto controlado) e pelo **ponto de operação
+> calibrado** — nunca pela acurácia/AUROC global.
 
-### 6.1. Métricas principais (ponto de operação padrão)
+### 6.1. Estágio 1 (gate "tem erro?") — held-out honesto, antes → depois
 
-| Métrica | **Valor** | IC 95% |
-|---|---|---|
-| **Acurácia** | **0.85** | 0.75 – 0.94 |
-| **Precisão** | **0.86** | — |
-| **Recall (sensibilidade)** | **0.86** | — |
-| **F1-score** | **0.86** | — |
-| **AUROC** | **0.90** | 0.79 – 0.97 |
-| **AP (PR-AUC)** | **0.92** | — |
-
-Matriz de confusão (TP=24, TN=22, FP=4, FN=4):
-
-![matriz de confusão](../artifacts/reports/confusion_matrix.png)
-
-**AUROC e AP são as métricas mais justas para a comparação** porque **não dependem de
-limiar** — medem a capacidade do modelo de separar erro de não-erro em qualquer ponto de
-corte. Recomendamos liderar a comparação com elas.
-
-### 6.2. "O limiar 0.95 estava roubando?" — Não.
-
-O número de **74%** que aparecia antes vinha de um **ponto de operação conservador**
-(otimizado para precisão máxima): ele trocava recall por precisão (precisão 1.00, recall
-0.50), e por isso a acurácia caía. **Não há roubo nem vazamento** — o limiar é sempre
-escolhido na **validação** e medido no **teste**. É apenas uma *escolha de ponto de
-operação*, como ajustar a sensibilidade de um filtro de spam:
-
-| Ponto de operação | Acurácia | Precisão | Recall | F1 | Quando usar |
-|---|---|---|---|---|---|
-| **Balanceado (padrão)** | **0.85** | **0.86** | **0.86** | **0.86** | **comparação / uso geral** |
-| Alta precisão (opcional) | 0.74 | 1.00 | 0.50 | 0.67 | quando falso-alarme é caro |
-
-→ Para a apresentação e a comparação, use a **linha balanceada**. A linha de alta precisão é
-um **modo opcional** (configurável em `decision.objective`), não o número principal.
-
-### 6.3. Aviso importante para a comparação justa entre modelos
-
-Como **todos os modelos serão avaliados neste mesmo dataset**, é preciso saber que ele tem um
-**confound de resolução** (toda tela limpa é 2076×2152). Consequência:
-
-- Um modelo **ingênuo** (que olhe resolução/device) pode mostrar **acurácia ~98%** — mas
-  estará **detectando o dispositivo, não o erro de layout**. Provamos isso: a regra trivial
-  "resolução ≠ 2076×2152" dá **AUROC 0.982 / acurácia 98%** (§6.4).
-- Nosso modelo **evita de propósito** esse atalho, por isso marca **0.85** (honesto) em vez
-  de 0.98 (trapaça). A prova de que ele detecta erro de **verdade** está no **teste sintético
-  livre de confound: AUROC 0.88 / AP 0.97** (§6.5).
-
-**Como apresentar:** "Nosso modelo tem acurácia 0.85, precisão 0.86 e AUROC 0.90 neste
-conjunto. Se algum modelo concorrente mostrar acurácia muito mais alta, vale verificar se ele
-não está apenas explorando o confound de resolução — medimos que isso sozinho dá 98%."
-
-### 6.4. Modelo vs baselines de confound (AUROC / AP no test)
-
-| Classificador | AUROC | AP |
-|---|---|---|
-| Regra trivial só de resolução | 0.982 | 0.983 |
-| Só fração de padding cinza | 0.964 | 0.966 |
-| Confound (res+aspect+foto) | 0.911 | 0.947 |
-| **Modelo (fusão)** | **0.904** | **0.921** |
-| DINOv2 cru (LogReg) | 0.846 | 0.865 |
-| kNN one-class (DINOv2) | 0.740 | 0.723 |
-
-> O modelo fica **abaixo** dos baselines de confound no global **de propósito**: ele foi
-> treinado para **não** usar o atalho da resolução. O valor real aparece nos testes
-> controlados abaixo.
-
-### 6.5. Métricas honestas (livres / controladas de confound)
-
-- **Detecção sintética livre de confound:** AUROC **0.882** · AP **0.967** (`embedding`/`decision` plots).
-- **Subconjunto controlado** (unfold-portrait-screenshot): AUROC **0.910**.
-- **precision@K:** P@5 = **1.00** · P@10 = **1.00** · P@20 = 0.85.
-- **Falseabilidade:** o modelo prediz resolução (0.933) ≈ prediz erro (0.904) — sinal de que
-  parte do sinal real ainda vem correlacionada com device (limitação de **dado**, §8).
-
-### 6.6. Ablação — a prova de que o sintético quebra o confound
-
-| Treino | synt AUROC | global AUROC | prediz **resolução** |
+| Métrica (TEST) — **decisor canônico = protótipo** | Baseline | **Novo** | Leitura |
 |---|---|---|---|
-| **real + sintético** | 0.881 | 0.890 | 0.912 |
-| **só sintético** | 0.861 | 0.668 | **0.657** ← não trapaceia |
-| **só real** | 0.752 | 0.933 | **0.919** ← aprendeu o confound |
+| AUROC protótipo (sinal mais limpo) | 0.728 | **0.731** | estável |
+| **Sintético livre de confound** (protótipo) | 0.695 | **0.723** (AP 0.89) | ✅ detecção real ↑ |
+| **Subconjunto controlado** (protótipo, n=71) | 0.685 | **0.711** | ✅ ↑ (a fusão caiu p/ 0.605 — ver nota) |
+| Falseab.: prediz **resolução** (nível absoluto) | 0.721 | **0.679** | ✅ rastreia menos o confound |
 
-→ "só real" parece ótimo no global, mas prediz **resolução tão bem quanto erro** = trapaça.
-"só sintético" detecta conteúdo **sem** rastrear resolução. (`scripts/ablation.py`)
+> ⚠️ **Duas honestidades importantes (não esconder na apresentação):**
+> 1. **A fusão global caiu** (AUROC 0.725 → 0.681; controlado pela fusão 0.671 → 0.605) porque
+>    a fusão foi calibrada para **não** explorar o atalho de resolução. O **decisor canônico
+>    é o protótipo**, que **melhorou** (controlado 0.685 → 0.711). Lidere pelo protótipo.
+> 2. **A falseabilidade ainda NÃO vence o confound no held-out:** prediz resolução **0.679** ≈
+>    prediz erro **0.681** (gap ~0). O reflow **reduziu o nível absoluto** de rastreamento
+>    (0.721 → 0.679) — e na **validação** o gap abriu (resolução 0.62 < erro 0.65) — mas no
+>    **teste** o gap continua ~0. Conclusão honesta: o confound **não foi vencido**; foi
+>    **atenuado**. Vencê-lo depende de **dado** (telas limpas diversas), não de tuning (§7–8).
 
-### 6.7. Tradeoff precisão × recall (modo opcional de alta precisão)
+### 6.2. ⭐ O conserto principal — calibração do ponto de operação
 
-![tradeoff](../artifacts/reports/tradeoff_outcome.png)
+O limiar antigo, fixado em **26 telas limpas** de validação, era **instável** e **inundava o
+teste de falso-alarme**. Calibrando na **validação livre de confound** (limpas + sintéticos +
+reflow), a especificidade **dobra** sem perder F1:
 
-Baixar o limiar (0.95 → 0.85) pega **+3 erros** mas introduz **2 falsos-alarmes**. Os erros
-"colados no cluster limpo" (parecem limpos) não são recuperáveis sem marcar telas limpas
-junto — é o piso de recall imposto pelos **dados**, não pelo limiar.
+| Ponto de operação (TEST) | especificidade | FPR | bAcc | MCC | F1 | confusão |
+|---|---|---|---|---|---|---|
+| Baseline (calib. 26 limpas) | 0.122 | 0.878 | 0.544 | 0.171 | 0.815 | TP86/TN5/FP36/FN3 |
+| **Novo (calib. livre de confound)** | **0.268** | **0.732** | **0.572** | **0.179** | 0.792 | TP78/TN11/FP30/FN11 |
+
+**Prova de que a calibração é a causa** (mesmo modelo novo, held-out, só muda o conjunto de
+calibração):
+
+| Calibração | especificidade | recall | bAcc | confusão |
+|---|---|---|---|---|
+| `real_val` (legado) | **0.000** | 1.000 | 0.500 | TN=**0** / FP=41 ← sinaliza TODA limpa como erro |
+| **`confound_free`** (novo) | **0.268** | 0.876 | 0.572 | TN=11 / FP=30 |
+
+> Na **validação** o efeito é ainda mais claro: especificidade **0.00 → 0.77** (sem-reflow) /
+> **0.46** (com-reflow). É a maior alavanca de operação que entregamos.
+
+### 6.3. Aviso para a comparação justa entre modelos (inalterado e importante)
+
+Todos os modelos serão avaliados neste mesmo dataset, que tem **confound de resolução** (toda
+limpa é 2076×2152). Um modelo **ingênuo** pode mostrar **acurácia ~98%** detectando o
+**device, não o erro**. **Como apresentar:** "lidere por AUROC/AP **livre de confound**; se um
+concorrente mostrar acurácia muito maior, verifique se não está explorando o confound de
+resolução — que sozinho dá 98%."
+
+### 6.4. Modelo vs baselines de confound (AUROC no test)
+
+| Classificador | AUROC |
+|---|---|
+| Regra trivial só de resolução | 0.994 |
+| Só fração de padding cinza | 0.972 |
+| DINOv2 cru (LogReg) | 0.746 |
+| **Modelo (protótipo)** | **0.731** |
+| kNN one-class (DINOv2) | 0.675 |
+
+> O modelo fica **abaixo** dos baselines de confound no global **de propósito** (foi treinado
+> para não usar o atalho). O valor real aparece no sintético livre de confound (§6.1) e no
+> controlado.
+
+### 6.5. Estágio 2 (categoria) — held-out, desenho consolidado
+
+**UM método canônico** (protótipo de categoria), avaliado **condicional ao gate** (só erros que
+o E1 sinalizou = produção). Taxonomia **grossa = primária**:
+
+| Taxonomia (TEST, oráculo) | F1-macro | IC 95% | por classe |
+|---|---|---|---|
+| **Grossa (3 super-classes)** ⭐ | **0.619** | 0.38 – 0.76 | região morta 0.66 (n44) · deslocado 0.63 (n40) · geometria 0.57 (n5) |
+| Fina (6 classes) — secundária | 0.360 | — | black_bars 0.54 · overlay 0.34 · empty 0.28 · disordered 0.20 · distortion 0.80 (n3) · orientation 0.00 (n2) |
+
+> ⚠️ **Honestidade (não vender como ganho de qualidade):** o salto fina 0.36 → grossa **0.62**
+> é, em grande parte, efeito de **agregar 6 → 3 classes** (tarefa mais fácil) sobre as **mesmas**
+> predições — é ganho de **clareza, reportabilidade e poder estatístico**, **não** de o modelo
+> ter ficado melhor em categorizar. Além disso o **IC95 [0.375, 0.765]** tem limite inferior
+> **perto do acaso** (0.333 para 3 classes) — sempre reportar o F1 **com o IC**. A taxonomia
+> grossa é defensável porque as 6 classes finas são semanticamente sobrepostas e algumas têm
+> n=2–3; o **valor real é o desenho consolidado** (um método, condicional ao gate), não o número.
+
+### 6.6. Ablação do reflow (na VALIDAÇÃO — sem tocar o teste)
+
+| Treino (val) | sintético | controlado | falseab. resolução↓ | especificidade (calib. livre conf.) |
+|---|---|---|---|---|
+| sem-reflow | 0.771 | 0.787 | 0.755 | 0.769 |
+| **com-reflow** | 0.768 | 0.733 | **0.617** | 0.462 |
+
+→ **Trade-off honesto:** o reflow **reduz o rastreamento do confound** (0.755 → 0.617 — a tese
+"detecta conteúdo, não device") ao custo de alguma especificidade/controlado. A calibração
+livre de confound é o ganho robusto (com **ou** sem reflow). O config robusto/agnóstico de
+device (`configs/robust_synthonly.yaml`, sem erros reais) está disponível para a alegação de
+robustez no paper.
+
+### 6.7. Sonda de falso-positivo em reflow (o gate não deve "acender" em layout legítimo)
+
+No held-out, AUROC(limpa-real vs limpa-reflow) = **0.338** e `p(erro)` médio do reflow
+(**0.333**) **< limpa-real** (0.461): o modelo trata reflow como **tão ou mais limpo** que uma
+tela limpa real — confirma o princípio de não-colisão. (Sonda independente:
+`scripts/audit_reflow.py`.)
 
 ### 6.8. Visualizações disponíveis (em `artifacts/reports/`)
 
 | Arquivo | O que mostra |
 |---|---|
-| ⭐ **`clusters_apresentacao.html`** | **principal para a reunião** — antes×depois interativo (clusterização + protótipo) com o **roteiro do que falar**; separação por distância sobe de **AUROC 0.58 → 0.94** |
-| `embedding_space.png` | DINOv2 cru (misturado) **vs** z aprendido (limpo vira cluster) |
-| `decision_space.png` | distância ao protótipo (limpo perto de 0) + curva PR |
-| `outcome_space.png` | TEST por TP/TN/FP/FN — **onde o modelo erra** |
-| `tradeoff_outcome.png` | comparação de limiares lado a lado |
-| `embedding_interactive*.html` | acerto/erro (TP/TN/FP/FN) por limiar — **opcional** (`--extra-html`) |
-| `heatmaps/` | onde está o erro em cada imagem (188 × 2 métodos) — **gerados sob demanda** por `localize.py` |
-| `synthetic_preview.png` | exemplos dos 5 erros sintéticos |
+| ⭐ **`clusters_apresentacao.html`** | E1 — antes×depois interativo (cluster limpo + protótipo) |
+| ⭐ **`categorias_apresentacao.html`** | E2 — espaço `z` colorido pelas categorias + protótipos |
+| `confusion_matrix.png` / `confusion_matrix_categoria.png` | gate (E1) e categoria grossa (E2) |
+| `embedding_space.png` · `decision_space.png` · `outcome_space.png` | espaço z · distância ao protótipo · TP/TN/FP/FN |
+| `evaluation_report.json` · `evaluation_report_baseline_noreflow.json` | held-out novo e baseline (antes/depois) |
 
 ---
 
@@ -472,14 +519,20 @@ decisivo é **coletar dados limpos diversos** — é uma lacuna de dados, não d
 ## 9. Como reproduzir
 
 ```bash
-python scripts/build_splits.py            # splits + auditoria de confound
-python scripts/extract_features.py --use-patch-stats --preprocess pad
-python scripts/make_synthetic.py          # erros sintéticos (anti-confound)
-python scripts/train.py                   # treina a cabeça siamesa
-python scripts/evaluate.py                # métricas honestas
-python scripts/visualize.py --target-precisions 0.85,0.95   # gráficos + HTML
-python scripts/predict.py --models artifacts/models --dir data/input/with_errors
+python scripts/build_splits.py --input data/input --out data/splits   # splits + auditoria
+python scripts/export_processed.py --config configs/default.yaml       # materializa processed/ (SSOT)
+python scripts/extract_features.py --processed data/processed --out artifacts/embeddings \
+       --use-patch-stats --preprocess pad                             # embeddings (1×, cacheados)
+python scripts/make_synthetic.py --config configs/default.yaml         # sondas synth + REFLOW (train/val/test)
+python scripts/audit_reflow.py --config configs/default.yaml           # sonda de não-colisão (antes de confiar no reflow)
+python scripts/train.py --config configs/default.yaml                  # treina a cabeça (reflow ON)
+python scripts/evaluate.py --config configs/default.yaml               # DEV (val) — itera sem tocar o teste
+python scripts/evaluate.py --config configs/default.yaml --final-test  # held-out (1×, após congelar)
 ```
 
+**Experimentos de ablação prontos:** `configs/ablation_noreflow.yaml` (isola o reflow) e
+`configs/robust_synthonly.yaml` (detector agnóstico de device, sem erros reais).
+
 Ambiente: GPU NVIDIA (CUDA 12.8), PyTorch 2.11, timm 1.0, scikit-learn, plotly/umap.
-Ver [`../README.md`](../README.md) para instalação e [`DESIGN.md`](DESIGN.md) para o detalhamento técnico.
+Ver [`../README.md`](../README.md) para instalação e [`DESIGN.md`](DESIGN.md) para o detalhamento técnico
+(incl. **§11 — técnicas portadas do projeto legado**).

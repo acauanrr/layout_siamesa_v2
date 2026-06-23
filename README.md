@@ -10,6 +10,15 @@ Detecção de erro de layout em screenshots/fotos de UI de celular com uma **red
    (`black_bars · disordered_layout · distortion · empty_space · orientation · overlay`)
    pelo **protótipo de categoria mais próximo**, treinado por SupCon multi-classe.
 
+> 🚀 **Experimento completo em UM comando** (treina, avalia e testa no dataset corrigido e gera
+> as métricas prontas para apresentação — acc/precisão/recall/F1/AUROC + veredito honesto):
+> ```bash
+> python scripts/run_experiment.py            # roda tudo; --fresh reconstrói do zero
+> ```
+> Saída: **`artifacts/reports/EXPERIMENT_RESULTS.md`** (tabela + veredito) · `EXPERIMENT_RESULTS.json`
+> (métricas planas p/ comparar com outros modelos) · `confusion_matrix*.png`. É só este comando —
+> os demais scripts são chamados internamente por ele.
+
 > **Resultado HELD-OUT honesto (jun/2026, pós-auditoria de vazamento).** As métricas legadas
 > (F1 ≈ 0.85–0.99) eram **inválidas** — vinham de *data snooping* no teste + split com vazamento
 > (ambos corrigidos na Fase 0; teste agora **trancado** atrás de `--final-test`, seleção **só na
@@ -37,6 +46,16 @@ Detecção de erro de layout em screenshots/fotos de UI de celular com uma **red
 > vazamento**); `early_stop_metric` e `synthetic.enabled` agora **realmente respeitados**; teto de
 > oversampling p/ classes raras; novas métricas (MCC, Brier, ECE, especificidade, FPR, IC95);
 > **suíte `pytest`** de integridade (`tests/`). Ver [`docs/DESIGN.md` §10.4](docs/DESIGN.md).
+
+> 🔧 **Consolidação (jun/2026 — técnicas portadas do projeto legado `~/iats/layout_siamesa`):**
+> (1) **reflow** — variantes **limpas** de layout legítimo (`reflow.py`; `synthetic.reflow_clean`)
+> que quebram o confound **pelo lado limpo** e reduzem o rastreamento da resolução (falseab.
+> 0.72→0.68); (2) **calibração livre de confound** (`decision.calibrate_on=confound_free`) —
+> conserta o ponto de operação instável: **especificidade held-out 0.12→0.27** (prova: a
+> calibração legada no mesmo modelo dá especificidade **0.00**); (3) **Estágio 2 consolidado** —
+> **um** método canônico (protótipo) + **taxonomia grossa** (3 super-classes), condicional ao
+> gate. Ablação + reconciliação do protocolo em [`docs/DESIGN.md` §11](docs/DESIGN.md). Configs
+> de ablação: `configs/ablation_noreflow.yaml`, `configs/robust_synthonly.yaml`.
 
 ### 📚 Documentação
 
@@ -68,21 +87,27 @@ após seleção honesta na val + estabilidade multi-seed/1-SE; teste processado 
 
 ### Estágio 1 — detecção "tem erro?" (o que importa: vs. baselines de confound)
 
-| Avaliação (TEST) | Modelo | Baseline de confound | Leitura |
+Decisor canônico = **protótipo**; números pós-consolidação (reflow + calibração livre de confound).
+
+| Avaliação (TEST) | Modelo (protótipo) | Baseline de confound | Leitura |
 |---|---|---|---|
-| **Global** AUROC | 0.73 (IC95 0.67–0.84) | **resolução trivial 0.99** · padding 0.97 | ❌ não supera o confound |
-| **Falseabilidade** | prediz erro 0.73 | prediz resolução 0.72 | ❌ rastreia resolução ≈ tão bem quanto erro |
-| **Controlado** (n=71, form-factor/orient. fixos) | **0.67** (IC95 **0.58**–0.84) | 0.38 | ✅ supera o confound (IC exclui 0.5) |
-| **Sintético livre de confound** (41 vs 164) | **0.70** (AP 0.87) | — | ✅ sinal real de conteúdo, modesto |
+| **Controlado** (n=71, form-factor/orient. fixos) | **0.711** | 0.38 | ✅ supera o confound (↑ de 0.685) |
+| **Sintético livre de confound** (41 vs 164) | **0.723** (AP 0.89) | — | ✅ sinal real de conteúdo, modesto (↑ de 0.695) |
+| **Falseabilidade** | prediz erro 0.68 | prediz resolução **0.68** | ❌ ainda **não vence** o confound (gap ~0 no teste; na val o reflow abre o gap p/ 0.62<0.65) |
+| **Global** AUROC (fusão) | 0.68 | **resolução trivial 0.99** · padding 0.97 | ↓ de propósito (explora menos o confound) |
 
-Ponto de operação (limiar de F1 fixado na val): acc 0.70 · F1 0.82 · **bAcc 0.54 · MCC 0.17 ·
-especificidade 0.12** (o limiar, calibrado em 26 limpas, inunda o teste de falso-positivo — frágil).
-Alta precisão: ~0.78 de precisão a ~30% de recall, mas `fp` de um dígito (**insuficiente** p/ alegar).
-precision@K: P@5 0.6 · P@20 0.75.
+**Ponto de operação** (calibração **livre de confound**, vs baseline calibrado em 26 limpas):
+especificidade **0.12 → 0.27** · FPR 0.88 → 0.73 · bAcc 0.54 → 0.57 · F1 0.82 → 0.79.
+**Prova da calibração:** no mesmo modelo, a calibração legada (`real_val`) dá especificidade
+**0.00** (sinaliza toda limpa como erro) vs **0.27** da `confound_free`. precision@K: P@5 0.8 · P@20 0.8.
 
-### Estágio 2 — categoria (n=89)
-F1-macro **0.39** (protótipo), dominado por ruído de amostra minúscula (`distortion` 0.80 em n=3;
-`orientation` 0.00 em n=2; `black_bars` 0.52; `overlay` 0.39). Honestamente ~0.3–0.4 com incerteza alta.
+### Estágio 2 — categoria (n=89) — desenho **consolidado**
+**Um** método canônico (protótipo de categoria), avaliado **condicional ao gate E1**. Taxonomia
+**grossa (3 super-classes) = primária**: F1-macro **0.62** (IC95 0.38–0.76 — limite inferior
+perto do acaso 0.33, reportar **com IC**). Taxonomia **fina (6 classes) = secundária**: F1-macro
+**0.36**. ⚠️ O salto fina→grossa é em grande parte **agregação 6→3 classes** (tarefa mais fácil),
+não ganho de qualidade — o valor é o **desenho claro** (1 método), não o número. Antes:
+reportava 2 métodos em paralelo (proto 0.39 / aux 0.38) — a confusão. Ver [`docs/DESIGN.md` §11.3](docs/DESIGN.md).
 
 ### Veredito
 O F1 inflado de ~0.99 era artefato de **vazamento + snooping**. No held-out honesto há **sinal de
@@ -98,19 +123,24 @@ de **novas telas limpas pareadas** (Fase 1), não de mais tuning — enquanto o 
 ## Arquitetura
 
 ```
+TREINO (limpas + erros reais + ERROS sintéticos + LIMPAS-reflow) ─┐
 imagem ─► padding CINZA 518×518 (+máscara) ─► DINOv2 ViT-S/14 (CONGELADO) ─► CLS + mean/std dos patches (1152-d)
-        └► cabeça de projeção compartilhada g(·) ─► z (128-d, L2-norm)   [perda: SupCon(z) + 0.3·BCE(aux)]
-           ├► score de protótipo: 1 − cos(z, protótipo-limpo-mais-próximo)   ← a ideia de clustering
-           └► cabeçalho auxiliar: Linear(128→1)                              ← detector binário direto
-           └► fusão calibrada ─► p(erro) ─► limiar de operação (balanceado por padrão)
+        └► cabeça de projeção compartilhada g(·) ─► z (128-d, L2-norm)   [perda: SupCon(z) + 0.6·CE(aux, 7 classes)]
+           ╞═ ESTÁGIO 1 (gate "tem erro?") ════════════════════════════════════════════════════
+           │  ├► score de protótipo LIMPO: 1 − cos(z, protótipo-limpo-mais-próximo)   ← clustering
+           │  └► cabeça auxiliar: Linear(128→7) softmax → P(erro)=1−P(clean)
+           │  └► fusão calibrada na VAL LIVRE DE CONFOUND ─► p(erro) ─► limiar (balanceado/precisão/especificidade)
+           ╘═ ESTÁGIO 2 (categoria; só se E1=erro) ════════════════════════════════════════════
+              └► protótipo de CATEGORIA mais próximo (canônico) → 3 super-classes (região morta/deslocado/geometria)
 ```
+Reflow (`reflow.py`) = variantes **limpas** de layout legítimo, anti-confound pelo lado limpo.
 
 Diagrama completo com todas as relações: [`docs/pipeline.mmd`](docs/pipeline.mmd)
 (renderiza no GitHub/VS Code) ou embutido no [relatório](docs/RELATORIO_APRESENTACAO.md#3-bis-diagrama-do-pipeline).
 
-**Função de erro:** `L = SupCon(z) + 0.3 · BCE(cabeça auxiliar)`. Usamos **Supervised
-Contrastive** (não Triplet clássica); a comparação **âncora vs protótipos** acontece na
-decisão. Detalhes no relatório §4.1.
+**Função de erro:** `L = SupCon(z) + 0.6 · CE(cabeça auxiliar de 7 classes)`. Usamos
+**Supervised Contrastive** (não Triplet clássica); a comparação **âncora vs protótipos**
+acontece na decisão (gate e categoria). Detalhes no relatório §4.1.
 
 ## Estrutura
 
@@ -123,8 +153,9 @@ src/siamese/
   geometry.py                pré-processamento (padding cinza + máscara de patch)
   backbone.py                DINOv2 congelado (extrator de features)
   features.py                extração e cache de embeddings
-  synthetic.py               injeção dos 5 tipos de erro sintético
-  synth_features.py          embeddings dos erros sintéticos
+  synthetic.py               injeção dos 5 tipos de erro sintético (anti-confound, lado do ERRO)
+  reflow.py                  variantes LIMPAS de layout legítimo (anti-confound, lado LIMPO)
+  synth_features.py          embeddings dos erros sintéticos + reflow-clean + benign
   model.py                   ProjectionHead · SiameseNet · SiamesePairHead
   losses.py                  SupCon + contrastiva de pares
   train.py                   treino da cabeça
@@ -176,8 +207,9 @@ python scripts/export_processed.py --config configs/default.yaml
 # 3. embeddings DINOv2 a partir de data/processed/ (a FONTE DA VERDADE; pad = padding cinza)
 python scripts/extract_features.py --processed data/processed --out artifacts/embeddings --use-patch-stats --preprocess pad
 
-# 4. sonda sintética livre de confound (val/test) a partir de processed/{val,test}/real/clean
+# 4. sondas: sintético livre de confound (val/test) + REFLOW-clean (train/val/test) de processed/
 python scripts/make_synthetic.py --config configs/default.yaml
+python scripts/audit_reflow.py --config configs/default.yaml   # (opcional) sonda de não-colisão do reflow
 
 # 5. treina a cabeça siamesa multi-classe (segundos)
 python scripts/train.py --config configs/default.yaml

@@ -1,0 +1,59 @@
+# ABLACAO: igual ao default mas SEM reflow-clean. Isola o efeito do reflow.
+# Use p/ reproduzir a linha sem-reflow da tabela de ablacao (docs/DESIGN.md §11).
+seed: 42
+val_frac: 0.15
+test_frac: 0.24
+paths:
+  input_dir: data/input
+  splits_dir: data/splits
+  emb_dir: artifacts/embeddings
+  models_dir: artifacts/models
+  reports_dir: artifacts/reports
+backbone:
+  model_name: vit_small_patch14_dinov2.lvd142m
+  size: 518
+  use_patch_stats: true
+  preprocess: pad
+  batch_size: 16
+synthetic:
+  enabled: true
+  n_variants: 4
+  max_errors_per_image: 2
+  seed: 0
+  reflow_clean: false
+  n_reflow_variants: 4
+  max_reflow_ops: 2
+  reflow_ops:
+    scroll_shift: 1.0
+    two_pane: 0.6
+    ar_relayout: 1.0
+    band_jitter: 1.0
+  p_reflow_pos: 0.0
+  benign_augment: false
+head:
+  hidden: 256
+  proj_dim: 128
+  p_drop: 0.3
+train:
+  epochs: 500
+  lr: 0.001
+  weight_decay: 0.0001
+  batch_size: 128
+  temperature: 0.05
+  loss: supcon
+  aux_weight: 0.6
+  multiclass: true
+  use_real_errors: true
+  use_synthetic: true
+  balance_batches: true
+  early_stop_metric: val_synth_gate
+  max_oversample_per_class: 12
+  patience: 80
+decision:
+  k_prototypes: 3
+  objective: f1
+  target_precision: 0.95
+  target_specificity: 0.8
+  calibrate_on: confound_free
+  stage2_method: prototype
+  coarse_taxonomy: true

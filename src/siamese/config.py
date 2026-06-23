@@ -31,6 +31,22 @@ class SyntheticCfg:
     n_variants: int = 4
     max_errors_per_image: int = 2
     seed: int = 0
+    # --- REFLOW (negativos com layout legitimo; portado do projeto legado) ---------------
+    # Variantes LIMPAS (label 0, category=clean) de mudanca de layout legitima (scroll,
+    # dual-pane, outro aspect-ratio, reflow de espacamento). Atacam (a) o falso-positivo
+    # estrutural (modelo confunde "tela diferente" com "errada") e (b) o confound de
+    # resolucao PELO LADO LIMPO (ar_relayout tira a limpa da resolucao 2076x2152). Ver
+    # src/siamese/reflow.py e docs/DESIGN.md. No legado foi o maior ganho (AUROC 0.62->0.80).
+    reflow_clean: bool = True
+    n_reflow_variants: int = 4         # variantes de reflow por imagem limpa de treino
+    max_reflow_ops: int = 2            # compoe 1..N operadores de reflow por variante
+    reflow_ops: dict = field(default_factory=lambda: {
+        "scroll_shift": 1.0, "two_pane": 0.6, "ar_relayout": 1.0, "band_jitter": 1.0})
+    p_reflow_pos: float = 0.0          # LEGADO/ablacao: fracao de erros sinteticos injetados
+                                       # SOBRE um layout reflowado (impede atalho "layout mudou
+                                       # => erro"). No legado deu resultado NEGATIVO -> default OFF.
+    benign_augment: bool = False       # round-trip de resolucao + jitter foto-metrico nas limpas
+                                       # (remove o atalho de nitidez/resolucao; opcional)
 
 
 @dataclass
@@ -74,7 +90,25 @@ class DecisionCfg:
     k_prototypes: int = 1
     objective: str = "f1"          # "f1" = ponto balanceado (padrao p/ acuracia/comparacao)
                                    # "precision" = alta precisao (usa target_precision)
+                                   # "specificity" = ponto specificity-first (usa target_specificity)
     target_precision: float = 0.95
+    target_specificity: float = 0.80   # usado quando objective=specificity: menor limiar cuja
+                                       # especificidade na calibracao >= alvo (gerente quer poucos
+                                       # falso-alarmes); reporta o recall obtido nesse ponto.
+    # CONJUNTO DE CALIBRACAO da fusao LogReg + limiar (SEMPRE na val — nunca no teste):
+    #   "confound_free" (PADRAO): limpas-val reais (0) + val_synth erros (1) + val_reflow limpas (0).
+    #       Muitos mais negativos limpos + positivos LIVRES de confound -> limiar ESTAVEL (corrige
+    #       o FPR 0.88 vindo de calibrar em so 26 limpas). E' a licao do legado (calibrar na val
+    #       sintetica). Cai para "real_val" se as sondas sinteticas nao existirem.
+    #   "real_val" (legado): so a val real (26 limpas + erros reais) — ponto de operacao instavel.
+    calibrate_on: str = "confound_free"
+    stage2_method: str = "prototype"   # decisor CANONICO do Estagio 2 (categoria): "prototype"
+                                       # (protótipo de categoria no espaco z — coerente com o
+                                       # Estagio 1) | "aux" (argmax da cabeca aux). O outro vira
+                                       # diagnostico/ablacao em evaluate.py.
+    coarse_taxonomy: bool = True       # avalia o Estagio 2 TAMBEM na taxonomia grossa (3 super-
+                                       # classes por nao-colisao) — reportada como PRIMARIA por ter
+                                       # poder estatistico; a fina (6 classes) vira secundaria.
 
 
 @dataclass

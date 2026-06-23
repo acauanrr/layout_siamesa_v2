@@ -60,7 +60,7 @@ def _labels(d: dict, multiclass: bool) -> np.ndarray:
 
 
 def assemble_training(emb_dir: Path, use_real_errors: bool, use_synthetic: bool,
-                      multiclass: bool = True):
+                      multiclass: bool = True, use_reflow: bool = False):
     tr = load_embeddings(emb_dir / "train.npz")
     ytr = _labels(tr, multiclass)
     if use_real_errors:
@@ -74,6 +74,18 @@ def assemble_training(emb_dir: Path, use_real_errors: bool, use_synthetic: bool,
         sy = load_embeddings(synth_path)
         X.append(sy["emb"]); y.append(_labels(sy, multiclass))
         src += ["synth"] * len(sy["label"])
+    # REFLOW-CLEAN: variantes de layout legitimo como NEGATIVOS (label 0 / category clean).
+    # Expandem o cluster limpo -> gate aprende invariancia a layout + resolucao (anti-confound
+    # pelo lado limpo, anti-falso-positivo). category='clean' -> _labels devolve 0 (bin e multi).
+    reflow_path = emb_dir / "train_reflow.npz"
+    if use_reflow:
+        if reflow_path.exists():
+            rf = load_embeddings(reflow_path)
+            X.append(rf["emb"]); y.append(_labels(rf, multiclass))
+            src += ["reflow"] * len(rf["label"])
+        else:
+            print(f"  [aviso] synthetic.reflow_clean=true mas {reflow_path} ausente -> "
+                  "treino SEM reflow. Rode scripts/make_synthetic.py para gera-lo.")
     return np.concatenate(X).astype(np.float32), np.concatenate(y).astype(np.int64), np.array(src)
 
 
@@ -133,7 +145,10 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
     # entra (treino nem sonda de early-stop), independentemente de train.use_synthetic.
     # (antes synthetic.enabled so afetava make_synthetic.py -> parametro logico ignorado.)
     use_synth = cfg.train.use_synthetic and cfg.synthetic.enabled
-    X, y, src = assemble_training(emb_dir, cfg.train.use_real_errors, use_synth, multiclass)
+    # reflow-clean tambem e' gateado por synthetic.enabled (e' uma augmentacao sintetica de limpas)
+    use_reflow = cfg.synthetic.reflow_clean and cfg.synthetic.enabled
+    X, y, src = assemble_training(emb_dir, cfg.train.use_real_errors, use_synth, multiclass,
+                                  use_reflow=use_reflow)
     in_dim = X.shape[1]
     Xt = torch.from_numpy(X).to(device)
     yt = torch.from_numpy(y).to(device)
@@ -164,15 +179,16 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
     # NB: NAO usamos pesos de classe na cross-entropy — _balanced_batches ja apresenta as
     # classes equilibradas por batch; somar inverse-freq dobraria a correcao e faria as
     # classes raras (orientation/distortion) dominarem.
+    nsrc = lambda s: int((src == s).sum())
     if multiclass:
         dist = {CATEGORIES[c]: int((y == c).sum()) for c in range(num_classes)}
         print(f"[treino] amostras={len(y)} MULTI-CLASSE ({num_classes} classes) "
-              f"[real={int((src=='real').sum())}, synth={int((src=='synth').sum())}] in_dim={in_dim}")
+              f"[real={nsrc('real')}, synth={nsrc('synth')}, reflow={nsrc('reflow')}] in_dim={in_dim}")
         print(f"         distribuicao por classe: {dist}")
     else:
         print(f"[treino] amostras={len(y)} BINARIO (limpas={int((y==0).sum())}, "
-              f"erros={int((y==1).sum())}) [real={int((src=='real').sum())}, "
-              f"synth={int((src=='synth').sum())}] in_dim={in_dim}")
+              f"erros={int((y==1).sum())}) [real={nsrc('real')}, "
+              f"synth={nsrc('synth')}, reflow={nsrc('reflow')}] in_dim={in_dim}")
 
     sel_name = cfg.train.early_stop_metric
     best_sel, best_state, best_epoch, best_metrics = -1.0, None, -1, {}
@@ -303,8 +319,10 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
             "git_commit": _git_commit(),
             "config": asdict(cfg),
             "dataset_sha256": {n: _file_sha256(emb_dir / n) for n in
-                               ("train.npz", "train_synth.npz", "val.npz", "val_synth.npz")},
+                               ("train.npz", "train_synth.npz", "train_reflow.npz",
+                                "val.npz", "val_synth.npz", "val_reflow.npz")},
             "used_synthetic": bool(use_synth),
+            "used_reflow": bool(use_reflow),
         },
         "train_cfg": {"use_real_errors": cfg.train.use_real_errors,
                       "use_synthetic": bool(use_synth), "synthetic_enabled": cfg.synthetic.enabled,
