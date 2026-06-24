@@ -77,44 +77,52 @@ global ingênua é ~98% **trapaça** (detecta o dispositivo, não o erro).
 **Solução central:** **injetar erros sintéticos** nas próprias telas limpas (mesma
 resolução), criando pares onde só o *conteúdo do erro* muda — forçando o modelo a aprender o
 erro, não o device. No **teste held-out**, a prova de detecção real (modesta) é o **sintético livre
-de confound (AUROC 0.70 / AP 0.87)** e o **subconjunto controlado (AUROC 0.67, IC95 0.58–0.84)** —
+de confound (AUROC 0.71 / AP 0.89)** e o **subconjunto controlado (AUROC 0.69 vs confound 0.38)** —
 acima do confound, mas longe dos números inflados que o vazamento produzia.
 
 ## Resultados
 
-**Avaliação held-out** (teste = 130 imagens: 41 limpas + 89 erros; config `proj_dim=128` congelada
+> 🔧 **Atualização jun/2026 — plano anti-overfitting ([`docs/PLANO_ACAO_OVERFITTING.md`](docs/PLANO_ACAO_OVERFITTING.md)).**
+> Sem coletar novas telas, atacou-se o confound **pelo lado limpo** (`benign_augment`), re-validaram-se
+> os hiperparâmetros **LEGADOS** na val (`temperature 0.05→0.1`, `aux_weight 0.6→0.3`, `proj_dim 128→64`,
+> regra 1-SE) e adotou-se ponto de operação **specificity-first**. Held-out: **especificidade 0.27→0.63**,
+> **FPR 0.73→0.37**, **MCC 0.18→0.39**, **bAcc 0.57→0.70**, gap treino→teste ~pela metade — **sem perder F1**.
+
+**Avaliação held-out** (teste = 130 imagens: 41 limpas + 89 erros; config `proj_dim=64` congelada
 após seleção honesta na val + estabilidade multi-seed/1-SE; teste processado **uma única vez**).
 
 ### Estágio 1 — detecção "tem erro?" (o que importa: vs. baselines de confound)
 
-Decisor canônico = **protótipo**; números pós-consolidação (reflow + calibração livre de confound).
+Decisor canônico = **protótipo**; números pós-consolidação (benign + reflow + calibração livre de confound).
 
 | Avaliação (TEST) | Modelo (protótipo) | Baseline de confound | Leitura |
 |---|---|---|---|
-| **Controlado** (n=71, form-factor/orient. fixos) | **0.711** | 0.38 | ✅ supera o confound (↑ de 0.685) |
-| **Sintético livre de confound** (41 vs 164) | **0.723** (AP 0.89) | — | ✅ sinal real de conteúdo, modesto (↑ de 0.695) |
-| **Falseabilidade** | prediz erro 0.68 | prediz resolução **0.68** | ❌ ainda **não vence** o confound (gap ~0 no teste; na val o reflow abre o gap p/ 0.62<0.65) |
-| **Global** AUROC (fusão) | 0.68 | **resolução trivial 0.99** · padding 0.97 | ↓ de propósito (explora menos o confound) |
+| **Controlado** (form-factor/orient. fixos) | **0.693** | 0.38 | ✅ supera o confound (margem +0.31) |
+| **Sintético livre de confound** | **0.713** (AP 0.89) | — | ✅ sinal real de conteúdo, modesto |
+| **Falseabilidade** | prediz erro 0.72 | prediz resolução **0.71** | ⚠️ métrica **degenerada** neste dataset (≈2 erros em resolução canônica → "erro"≈"resolução"); o sinal real é o controlado/sintético |
+| **Global** AUROC (fusão) | 0.72 | **resolução trivial 0.99** · padding 0.97 | ↓ de propósito (explora menos o confound) |
 
-**Ponto de operação** (calibração **livre de confound**, vs baseline calibrado em 26 limpas):
-especificidade **0.12 → 0.27** · FPR 0.88 → 0.73 · bAcc 0.54 → 0.57 · F1 0.82 → 0.79.
-**Prova da calibração:** no mesmo modelo, a calibração legada (`real_val`) dá especificidade
-**0.00** (sinaliza toda limpa como erro) vs **0.27** da `confound_free`. precision@K: P@5 0.8 · P@20 0.8.
+**Ponto de operação** (`objective=specificity`, calibração **livre de confound**):
+especificidade **0.634** · FPR **0.366** · bAcc **0.699** · MCC **0.385** · precisão **0.819** (IC95 0.62–0.99) · F1 0.791
+(antes, `objective=f1`: especificidade 0.27 · FPR 0.73 · MCC 0.18). Curva completa em
+`evaluation_report.json → limiar_por_precisao` (alvo 0.90: precisão 0.81, 11 FP de 41 limpas).
+**Reprodução (grouped nested-CV, OOF, teste não tocado):** AUROC 0.70±0.03 · AP 0.80±0.02 · MCC 0.38±0.04 — bate com o held-out.
 
 ### Estágio 2 — categoria (n=89) — desenho **consolidado**
 **Um** método canônico (protótipo de categoria), avaliado **condicional ao gate E1**. Taxonomia
-**grossa (3 super-classes) = primária**: F1-macro **0.62** (IC95 0.38–0.76 — limite inferior
-perto do acaso 0.33, reportar **com IC**). Taxonomia **fina (6 classes) = secundária**: F1-macro
-**0.36**. ⚠️ O salto fina→grossa é em grande parte **agregação 6→3 classes** (tarefa mais fácil),
-não ganho de qualidade — o valor é o **desenho claro** (1 método), não o número. Antes:
-reportava 2 métodos em paralelo (proto 0.39 / aux 0.38) — a confusão. Ver [`docs/DESIGN.md` §11.3](docs/DESIGN.md).
+**grossa (3 super-classes) = primária**: F1-macro **~0.39** (IC95 ~0.32–0.46 — limite inferior
+perto do acaso 0.33, reportar **com IC**). Taxonomia **fina (6 classes) = secundária/exploratória**:
+F1-macro **~0.21**. **Baseline obrigatório** (`scripts/stage2_baseline.py`, features DINOv2 cruas):
+fina 0.19 / grossa 0.29–0.34 — o protótipo **aprendido** supera, confirmando que a cabeça agrega valor
+(modesto, sobretudo na fina). **Multi-label** fica como trabalho futuro (erros coocorrem). Ver [`docs/DESIGN.md` §11.3](docs/DESIGN.md).
 
 ### Veredito
 O F1 inflado de ~0.99 era artefato de **vazamento + snooping**. No held-out honesto há **sinal de
-layout real porém modesto** (controlado 0.67, sintético 0.70 — acima do confound), mas **globalmente
-o modelo não vence o confound de resolução** e o ponto de operação é instável. Melhorar isso depende
-de **novas telas limpas pareadas** (Fase 1), não de mais tuning — enquanto o conjunto limpo for um
-único device (2076×2152), a resolução continua sendo o atalho.
+layout real porém modesto** (controlado 0.69, sintético 0.71 — acima do confound), e o **ponto de
+operação foi estabilizado** (FPR 0.73→0.37, gap treino→teste ~pela metade, reproduzido por grouped CV).
+Mas **globalmente o modelo ainda não vence o confound de resolução** e a falseabilidade/precisão-alta
+esbarram no **teto do dataset** (limpas = 1 device 2076×2152, n pequeno). Subir esse teto depende de
+**novas telas limpas pareadas** (Fase 1 original), não de mais tuning.
 
 > ⚖️ **Comparação justa:** lidere com **AUROC/AP** (não dependem de limiar). Se um modelo
 > concorrente mostrar acurácia muito maior neste dataset, verifique se ele não está apenas

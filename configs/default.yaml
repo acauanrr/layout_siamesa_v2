@@ -35,14 +35,18 @@ synthetic:
     ar_relayout: 1.0
     band_jitter: 1.0
   p_reflow_pos: 0.0        # LEGADO/ablacao: erro injetado SOBRE reflow (negativo no legado -> off)
-  benign_augment: false    # round-trip de resolucao + jitter foto-metrico nas limpas (opcional)
+  benign_augment: true     # round-trip de resolucao + jitter foto-metrico nas limpas. ATIVADO
+                           # (jun/2026, plano Fase 1/4): negativos LIMPOS com aparencia/resolucao
+                           # variada quebram o confound pelo lado limpo -> gap treino->teste ~caiu
+                           # pela metade (bAcc 0.31->0.18), held-out clean menos super-marcado.
 
 head:
   hidden: 256
-  proj_dim: 128            # CONGELADO: vencedor da selecao HONESTA (grid na val + estabilidade
-                           # multi-seed, regra do 1-SE): val_synth_gate 0.826+-0.002, a maior media
-                           # E a mais estavel. < 256 (Fase 4: cabeca menor generaliza), mas nao 32
-                           # (subajuste). Selecionado SO na val; teste nunca lido.
+  proj_dim: 64             # CONGELADO (re-selecao honesta jun/2026): vencedor do grid na val
+                           # (val_synth_gate 0.832; gates proto E aux concordam no topo) E da
+                           # estabilidade multi-seed (regra do 1-SE: 0.821+-0.005, UNICO dentro de
+                           # 1 SE — 128/256/32 ficam abaixo). Cabeca MENOR generaliza melhor (gap
+                           # treino->teste menor). Selecionado SO na val; teste nunca lido.
   p_drop: 0.3
 
 train:
@@ -50,10 +54,11 @@ train:
   lr: 0.001
   weight_decay: 0.0001
   batch_size: 128
-  temperature: 0.05        # LEGADO (selecao antiga, com snooping) — NAO re-validado na selecao
-                           # honesta (que variou so proj_dim/weight_decay/k). Re-selecionar ainda.
+  temperature: 0.1         # RE-VALIDADO honestamente (jun/2026): grid na val sobre
+                           # temperature x aux_weight x proj_dim -> 0.1 no topo (era 0.05, LEGADO).
   loss: supcon             # supcon | contrastive
-  aux_weight: 0.6          # LEGADO (selecao antiga) — idem temperature: ainda nao re-validado.
+  aux_weight: 0.3          # RE-VALIDADO honestamente (jun/2026): grid na val -> 0.3 no topo (era
+                           # 0.6, LEGADO). Menos peso no aux = cluster limpo menos overfitado.
   multiclass: true         # true = clusteriza por CATEGORIA (clean + 6 erros de errors_dataset/);
                            # aux=softmax, SupCon por categoria, batches balanceados por classe,
                            # decisao em 2 estagios (gate binario + categoria por prototipo).
@@ -71,9 +76,10 @@ train:
 decision:
   k_prototypes: 3          # selecao honesta: k nao afeta o gate (val_synth_gate); k=3 da F1 de
                            # categoria marginalmente melhor que k=1. Mantido em 3.
-  objective: f1            # "f1" = ponto BALANCEADO (acuracia/precisao justas p/ comparar)
-                           # "precision" = alta precisao (usa target_precision)
-                           # "specificity" = specificity-first (usa target_specificity)
+  objective: specificity   # HEADLINE specificity-first (jun/2026, plano Fase 3.3): escolhe o limiar
+                           # por especificidade-alvo, NAO por F1 puro (que inflava o FPR p/ 0.73).
+                           # Corta o falso-alarme em telas limpas. "f1"=balanceado | "precision"=alta
+                           # precisao (usa target_precision). Curva completa em limiar_por_precisao.
   target_precision: 0.95   # usado apenas quando objective=precision
   target_specificity: 0.80 # usado apenas quando objective=specificity
   # CALIBRACAO da fusao+limiar (SEMPRE na val; nunca no teste). "confound_free" = limpas-val +

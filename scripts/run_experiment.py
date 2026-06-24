@@ -260,6 +260,7 @@ def build_report(emb_dir: Path, rep_dir: Path, cfg_path: Path) -> dict:
              "especificidade", "fpr", "auroc", "ap", "brier", "ece", "threshold")},
         "confusao": conf,
         "ci95_acuracia": op.get("ci95_acuracia"), "ci95_f1": op.get("ci95_f1"),
+        "ci95_precisao": op.get("ci95_precisao"), "ci95_especificidade": op.get("ci95_especificidade"),
         "auroc_gate_prototipo": proto_auroc, "auroc_gate_fusao": fus_auroc,
         "sintetico_livre_confound": {"auroc": synth_proto, "ap": synth_ap},
         "controlado": {"modelo_prototipo": ctrl_proto, "baseline_confound": ctrl_base, "ci95": ctrl_ci},
@@ -340,10 +341,10 @@ models:
 | Metric | Value | 95% CI |
 |---|---|---|
 | **Accuracy** | **{_f(op.get('acuracia'))}** | {_ci(op.get('ci95_acuracia'))} |
-| **Precision** | **{_f(op.get('precisao'))}** | — |
+| **Precision** | **{_f(op.get('precisao'))}** | {_ci(op.get('ci95_precisao'))} |
 | **Recall (sensitivity)** | **{_f(op.get('recall'))}** | — |
 | **F1-score** | **{_f(op.get('f1'))}** | {_ci(op.get('ci95_f1'))} |
-| **Specificity** | **{_f(op.get('especificidade'))}** | — |
+| **Specificity** | **{_f(op.get('especificidade'))}** | {_ci(op.get('ci95_especificidade'))} |
 | **Balanced accuracy** | **{_f(op.get('balanced_accuracy'))}** | — |
 | **MCC** | **{_f(op.get('mcc'))}** | — |
 | **AUROC** (fusion / prototype) | **{_f(fus_auroc)} / {_f(proto_auroc)}** | — |

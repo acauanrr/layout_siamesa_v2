@@ -357,9 +357,14 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
         fn = int(((pred == 0) & (ho["label"] == 1)).sum())
         prec = tp / (tp + fp) if tp + fp else 0.0
         rec = tp / (tp + fn) if tp + fn else 0.0
+        # IC95 (bootstrap agrupado) da PRECISAO no held-out neste limiar — criterio de aceite 4:
+        # a meta so e' atingida se o LIMITE INFERIOR do IC95 for compativel com o alvo.
+        prec_ci = grouped_bootstrap_ci(
+            lambda yy, pp, t=thr: float(((pp > t) & (yy == 1)).sum()) / max(1, int((pp > t).sum())),
+            ho["label"], fused_ho, ho["group"])
         thr_results[f"precisao_alvo_{target}"] = {
             "threshold": thr, "val": info,
-            "test_precision": prec, "test_recall": rec,
+            "test_precision": prec, "test_recall": rec, "test_precision_ci95": prec_ci,
             "test_tp": tp, "test_fp": fp, "test_fn": fn,
         }
     report["limiar_por_precisao"] = thr_results
@@ -401,6 +406,14 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
             "ci95_acuracia": grouped_bootstrap_ci(accuracy_score, y, pred, groups),
             "ci95_f1": grouped_bootstrap_ci(lambda yy, pp: f1_score(yy, (pp > 0.5).astype(int), zero_division=0),
                                             y, pred.astype(float), groups),
+            # IC95 (bootstrap agrupado por ticket) de PRECISAO e ESPECIFICIDADE no ponto de
+            # operacao — criterios de aceite 3 (FPR/especificidade) e 4 (precisao com IC95).
+            "ci95_precisao": grouped_bootstrap_ci(
+                lambda yy, pp: float(((pp > 0.5) & (yy == 1)).sum()) / max(1, int((pp > 0.5).sum())),
+                y, pred.astype(float), groups),
+            "ci95_especificidade": grouped_bootstrap_ci(
+                lambda yy, pp: float(((pp < 0.5) & (yy == 0)).sum()) / max(1, int((yy == 0).sum())),
+                y, pred.astype(float), groups),
         }
 
     report["ponto_operacao"] = _op_metrics(ho["label"], fused_ho, ho["group"])         # HELD-OUT
