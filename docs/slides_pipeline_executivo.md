@@ -251,13 +251,13 @@ sintético e não transfere. SupCon é a versão em lote de âncora/positivo/neg
 Com o espaço organizado, a decisão é **geométrica** — a mesma ideia (distância a protótipos no espaço `z`) para os dois estágios:
 
 **Estágio 1 — gate "tem erro?"** *(decisor canônico = protótipo)*
-1. **Protótipo** do cluster limpo = o **centro do que é normal** (k-means).
+1. **Protótipo** do cluster limpo = **média (centroide) do que é normal** *(k=1 no padrão; k-means só se k>1)*.
 2. **Distância cosseno:** `score = 1 − cos(z, protótipo)`. *(perto = saudável · longe = suspeita)*
-3. Vira **probabilidade** `p(erro)` ∈ [0,1] — **calibrada na VALIDAÇÃO LIVRE DE CONFOUND**.
-4. **Limiar** (specificity-first): `p(erro) > limiar` → ❌ erro ; senão → ✅ limpa.
+3. Vira **probabilidade** `p(erro)` ∈ [0,1] via **fusão logística** — **calibrada na VALIDAÇÃO LIVRE DE CONFOUND**.
+4. **Limiar** (max-F1 padrão; specificity-first opcional): `p(erro) > limiar` → ❌ erro ; senão → ✅ limpa.
 
-**Estágio 2 — categoria** *(só se o gate = erro)*
-- **Um** método: o **protótipo de categoria** mais próximo — **mesma matemática `1 − cos`**.
+**Estágio 2 — categoria** *(só se o gate = erro)* — **reaproveita o MESMO `z`**, sem rede nova
+- **Um** método: o **protótipo de categoria** mais próximo — **mesma matemática `1 − cos`** *(detalhe nos próximos slides)*.
 - Taxonomia primária = **3 super-classes**: região morta · deslocado · geometria.
 
 > 💡 *"Mede a distância da tela ao centro do normal (gate); se suspeita, vê de que bairro-de-problema está mais perto (categoria)."*
@@ -269,6 +269,26 @@ viramos probabilidade — agora CALIBRADA na validação livre de confound, não
 cortamos num limiar specificity-first. Estágio 2, só se o gate diz erro: a mesma matemática,
 mas vendo de qual protótipo de CATEGORIA a tela está mais perto. Consolidamos para UM método
 (antes eram dois em paralelo) e taxonomia grossa de 3 super-classes."
+-->
+
+---
+
+## ⚖️ Etapa 5 — o fluxo completo da decisão
+
+<div style="text-align:center">
+
+![w:980](../artifacts/reports/decisao_two_stage.png)
+
+</div>
+
+<span class="muted">Os **dois** estágios reaproveitam o **mesmo** vetor `z` (128-d) — **nenhuma rede é aplicada de novo**. Gate (fusão logística + limiar) → categoria (protótipo mais próximo). Detalhe técnico: `docs/RELATORIO_TWO_STAGE_DECISION.md`.</span>
+
+<!--
+🎤 Fala: "Esse é o fluxo completo da decisão numa figura. Guardem uma coisa que a equipe
+perguntou: o MESMO vetor z que o gate usa é o que o Estágio 2 usa — nada é recalculado, nenhuma
+rede roda de novo. À esquerda, o gate: dois ramos (distância ao protótipo + cabeça auxiliar)
+entram numa fusão logística e um limiar. Embaixo, só se deu erro, o Estágio 2: o protótipo de
+categoria mais próximo. Os próximos slides abrem o Estágio 2, que foi o que vocês questionaram."
 -->
 
 ---
@@ -347,6 +367,84 @@ isso, e o diagrama detalhado mostra as duas entradas."
 
 ---
 
+## 🧩 Estágio 2 — as perguntas que a equipe fez
+
+| Pergunta | Resposta |
+|---|---|
+| Usa os **embeddings já gerados**? | **Sim** — o **mesmo** `z` (128-d) do Estágio 1. **Zero** re-extração. |
+| Aplica uma **rede siamesa de novo**? | **Não** — `g(·)` roda **uma vez**; o Estágio 2 é só **álgebra** sobre `z`. |
+| Aplica algum **MLP**? | **Não como decisor.** Há a cabeça aux `Linear(128→7)`, mas é **só diagnóstico**. |
+| **Como separa os grupos? Qual modelo?** | **Protótipo de categoria mais próximo** (nearest-centroid, cosseno). Quem **separa** é a cabeça `g(·)` treinada com **SupCon** — no **treino**, não na decisão. |
+
+> **`categoria = argmax_c cos(z, protótipo_c)`** · protótipo = **média da classe** (k=1) · inferência = **1 produto escalar + arg max**.
+
+<!--
+🎤 Fala: "Essas foram exatamente as perguntas de vocês na apresentação. Resumo honesto: o
+Estágio 2 reusa o MESMO z; não roda nenhuma rede de novo; não tem MLP decidindo — a categoria
+é o protótipo mais próximo, por cosseno. E o que TORNA os grupos separáveis é o treino da cabeça
+com SupCon; na decisão não existe modelo novo, é geometria."
+-->
+
+---
+
+## 🧩 Estágio 2 — como a categoria é calculada
+
+<div style="text-align:center">
+
+![w:1000](../artifacts/reports/estagio2_prototipo.png)
+
+</div>
+
+<span class="muted">**(a)** `z` do erro vs os **6 protótipos** de categoria → o mais próximo vence · **(b)** placar de `cos(z, protótipo_c)` → **arg max** → mapa fixo **6 → 3** super-classes.</span>
+
+<!--
+🎤 Fala: "Passo a passo. Pego o z do erro e comparo com 6 protótipos — cada protótipo é a MÉDIA
+dos z daquela categoria no treino (k=1, um por classe). A categoria é a do protótipo mais
+próximo. À direita o placar de cossenos: aqui 'overlay' ganha com 0.63, e o mapa fixo 6→3
+transforma em 'deslocado'. É literalmente um produto escalar e um arg max — sem pesos treinados,
+sem k-means."
+-->
+
+---
+
+## 🧩 De onde vem a separação dos grupos
+
+<div style="text-align:center">
+
+![w:980](../artifacts/reports/espaco_representacao.png)
+
+</div>
+
+A separabilidade nasce no **TREINO** (SupCon + 0.6·CE moldam `z`); a **decisão** é só geometria
+(centroide mais próximo). **Não** é um modelo novo, **não** é k-means, **não** é MLP.
+
+<!--
+🎤 Fala: "Por que funciona? No DINOv2 cru, limpo e erro ficam misturados. A cabeça siamesa,
+treinada com SupCon, colapsa as limpas num cluster e empurra os erros pra fora — agrupando-os
+nas 3 super-classes. A decisão dos dois estágios só LÊ essa geometria já organizada."
+-->
+
+---
+
+## 🧩 Estágio 2 — o que dizer com honestidade
+
+- **Headline = oráculo** (categoriza *todos* os erros). Em **produção**, só os erros que o **gate pegou** chegam ao E2 → recall ponta-a-ponta = **recall_gate × recall_E2**. Lidere pelo **condicional ao gate**.
+- **F1 grosso (3) é tarefa mais fácil** que a fina (6→3 funde vizinhos confundíveis) — apresente como **agregação**, **sempre com IC95** (suportes minúsculos: `orientation` ~7, `distortion` ~13).
+- **`geometry` é frágil:** `distortion`/`orientation` **não têm sintético** → 0 positivos livres de confound; protótipos vêm de poucos erros reais.
+- **O protótipo decide; a cabeça aux não** — podem discordar; não cite o `argmax` da aux como "a predição".
+
+> **Grossa F1-macro 0.62** (IC95 0.38–0.76) · Fina 0.36 (secundária). O salto fina→grossa é, em boa parte, **agregação 6→3**, não qualidade nova.
+
+<!--
+🎤 Fala: "Honestidade no Estágio 2, pra não levar pergunta difícil: o número de cabeçalho é o
+ORÁCULO, que categoriza todos os erros; em produção só chega o que o gate pegou, então a recall
+real é o PRODUTO das duas etapas. O F1 grosso é mais alto porque a tarefa é mais fácil — 3
+classes em vez de 6 —, não porque discrimina melhor. E sempre com o intervalo de confiança,
+porque os suportes são minúsculos."
+-->
+
+---
+
 ## ✅ / ❌ Resultado — held-out honesto (130 imgs · teste trancado · 1×)
 
 | Estágio 1 — gate "tem erro?" | Valor | Leitura |
@@ -369,6 +467,85 @@ isso, e o diagrama detalhado mostra as duas entradas."
 O conserto mais forte foi o ponto de operação: a especificidade saltou pra 0.27. No estágio 2,
 taxonomia grossa F1-macro 0.62, sempre com o IC. E sou honesto: o confound foi atenuado, não
 vencido — vencer depende de DADO, não de tuning."
+-->
+
+---
+
+## 📊 Métricas finais no TEST — tabela completa <span class="muted" style="font-size:0.6em">(130 imgs · teste trancado · 1×)</span>
+
+<div style="display:flex; gap:1.1em; font-size:0.82em">
+<div style="flex:1.05">
+
+**Estágio 1 — gate "tem erro?"** <span class="muted">(ponto balanceado · calib. livre de confound)</span>
+
+| Métrica | Valor | IC95 |
+|---|---|---|
+| Acurácia | 0.685 | [0.51–0.86] |
+| Precisão | 0.722 | — |
+| Recall (sensibilidade) | 0.876 | — |
+| **F1-score** | **0.792** | [0.63–0.92] |
+| Especificidade | 0.268 | — |
+| Acurácia balanceada | 0.572 | — |
+| MCC | 0.179 | — |
+| **AUROC** (protótipo / fusão) | **0.731 / 0.681** | — |
+| **AP** (PR-AUC) | 0.797 | — |
+| Brier / ECE (calibração) | 0.223 / 0.158 | — |
+
+Matriz de confusão: **TP 78 · TN 11 · FP 30 · FN 11**
+
+</div>
+<div style="flex:1">
+
+**Honestas — livre de confound** <span class="muted">(lidere por aqui)</span>
+
+| Avaliação | Modelo | Confound |
+|---|---|---|
+| Sintético livre de confound | **AUROC 0.723** · AP 0.889 | — |
+| Subconjunto controlado | **0.711** [0.47–0.77] | 0.383 |
+| Falseabilidade (erro × resolução) | 0.681 | 0.679 |
+
+**Baselines de confound** <span class="muted">(o "teto da trapaça")</span>
+
+| Classificador | AUROC |
+|---|---|
+| Regra trivial de **resolução** | **0.994** |
+| Fração de padding | 0.972 |
+| LogReg no DINOv2 cru | 0.746 |
+| **Modelo (protótipo)** | **0.731** |
+
+**Estágio 2 — categoria** · grossa **0.619** [0.38–0.76] · cond. ao gate 0.603 · fina 0.360
+
+</div>
+</div>
+
+> **Lidere por AUROC/AP livre de confound, nunca pela global:** a regra de resolução sozinha dá **AUROC 0.994** (≈98% trapaça). Confound **atenuado, não vencido**.
+
+<!--
+🎤 Fala: "Aqui estão TODAS as métricas finais no teste, num lugar só. À esquerda o estágio 1
+completo: acurácia 0.685, precisão 0.722, recall 0.876, F1 0.79, especificidade 0.27, MCC 0.18,
+AUROC do protótipo 0.73, AP 0.80, mais Brier e ECE de calibração; a confusão é 78/11/30/11. À
+direita, o que importa pra comparação justa: as métricas LIVRES de confound — sintético 0.72/AP
+0.89, controlado 0.71 batendo o baseline 0.38 — e os baselines de confound, onde a regra de
+resolução sozinha dá 0.994. Por isso NÃO se lidera pela métrica global: ela é ~98% confound."
+-->
+
+---
+
+## 📊 Métricas por categoria de erro (test)
+
+<div style="text-align:center">
+
+![w:1100](../artifacts/reports/metricas_por_classe.png)
+
+</div>
+
+<span class="muted">Duas perguntas distintas: **detecção** (o gate pega o erro desta categoria?) × **classificação** (Estágio 2 acerta a categoria?). Classes com **n<5** — `orientation` (n=2), `distortion` (n=3) — são instáveis: ler **sempre com o suporte**.</span>
+
+<!--
+🎤 Fala: "Por categoria, separando duas perguntas que não se misturam: detecção, que é o gate
+pegar aquele tipo de erro, e classificação, que é o estágio 2 acertar a categoria. black_bars é
+o melhor dos dois lados; disordered_layout é o pior detectado. E cuidado com orientation e
+distortion: 2 e 3 amostras — os números balançam, sempre leio com o suporte ao lado."
 -->
 
 ---
@@ -463,8 +640,8 @@ Esticar distorce o erro; cortar perde topo/laterais. Cinza some na normalizaçã
 **O limiar é uma distância fixa?**
 Não. O *sinal* é distância; o *corte* é sobre `p(erro)`, **calibrado na validação LIVRE DE CONFOUND** (specificity-first).
 
-**Por que protótipos via k-means?**
-Resumem o cluster limpo (limpas reais + reflow). Multimodal? basta aumentar o k na config.
+**Os protótipos usam k-means?**
+No padrão **não**: `k=1` ⇒ protótipo = **média (centroide) da classe** (re-normalizada). k-means só entra se `k>1` (cluster multimodal) — config `k_prototypes`.
 
 **Por que cosseno e não euclidiana?**
 Vetores normalizados (hiperesfera) → cosseno mede direção/conteúdo, casa com o treino contrastivo.
@@ -475,8 +652,8 @@ A global é ~98% trapaça (regra de resolução → AUROC 0.99). Liderar pelo li
 **O confound foi resolvido?**
 **Atenuado, não vencido:** no held-out, prever resolução (0.679) ≈ prever erro (0.681). Vencer depende de **DADO**.
 
-**Estágio 2 melhorou?**
-Ficou **claro** (1 método, condicional ao gate). Grossa F1-macro 0.62 (IC95 0.38–0.76); o salto fina→grossa é em grande parte agregação 6→3.
+**Estágio 2 melhorou? E como ele funciona?**
+Ficou **claro** (1 método, condicional ao gate). **Reaproveita o mesmo `z`** (sem rede nova, sem MLP decisor): `categoria = argmax_c cos(z, protótipo_c)` (nearest-centroid). Grossa F1-macro 0.62 (IC95 0.38–0.76); o salto fina→grossa é em grande parte agregação 6→3. **Detalhe completo:** `docs/RELATORIO_TWO_STAGE_DECISION.md`.
 
 <!-- 🎤 Fala: aqui mora a pergunta do limiar; se aprofundarem, volto à cadeia A→D. Honestidade: confound atenuado, não vencido. -->
 
@@ -489,6 +666,7 @@ Ficou **claro** (1 método, condicional ao gate). Grossa F1-macro 0.62 (IC95 0.3
 
 **Roteiro completo:** `docs/ROTEIRO_PIPELINE_EXECUTIVO.md`
 **Relatório + números:** `docs/RELATORIO_APRESENTACAO.md`
+**Decisão em 2 estágios (Estágio 2 em detalhe):** `docs/RELATORIO_TWO_STAGE_DECISION.md`
 **Decisões técnicas:** `docs/DESIGN.md`
 
-<!-- 🎤 Fala: "Os detalhes e os números todos estão nesses três documentos. Perguntas?" -->
+<!-- 🎤 Fala: "Os detalhes e os números todos estão nesses documentos. O 'como funciona o Estágio 2' que vocês perguntaram está no RELATORIO_TWO_STAGE_DECISION, com as figuras. Perguntas?" -->
