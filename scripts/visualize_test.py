@@ -35,8 +35,8 @@ from sklearn.metrics import (roc_auc_score, average_precision_score,
 from siamese.config import Config
 from siamese.features import load_embeddings
 from siamese.train import load_model
-from siamese.evaluate import model_embeddings, grouped_bootstrap_ci
-from siamese.decision import (fit_prototypes, PrototypeDecider,
+from siamese.evaluate import model_embeddings, grouped_bootstrap_ci, _aux_err
+from siamese.decision import (fit_prototypes, PrototypeDecider, select_threshold_for_specificity,
                               select_threshold_for_precision, select_threshold_max_f1)
 
 # acerto/erro -> (rotulo amigavel EN, cor)
@@ -81,7 +81,7 @@ def _outcome_codes(pred: np.ndarray, true: np.ndarray) -> np.ndarray:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
-    ap.add_argument("--objective", choices=["f1", "precision"], default=None,
+    ap.add_argument("--objective", choices=["f1", "precision", "specificity"], default=None,
                     help="ponto de operacao; default = o do config (f1 = balanceado)")
     ap.add_argument("--target-precision", type=float, default=None)
     ap.add_argument("--final-test", action="store_true",
@@ -108,9 +108,14 @@ def main() -> None:
     te = load_embeddings(emb_dir / "test.npz")
     model = load_model(Path(cfg.paths.models_dir) / "siamese_head.pt", device=device)
 
-    z_tr, aux_tr = model_embeddings(model, tr["emb"], device)
-    z_va, aux_va = model_embeddings(model, va["emb"], device)
-    z_te, aux_te = model_embeddings(model, te["emb"], device)
+    z_tr, aux_tr_raw = model_embeddings(model, tr["emb"], device)
+    z_va, aux_va_raw = model_embeddings(model, va["emb"], device)
+    z_te, aux_te_raw = model_embeddings(model, te["emb"], device)
+    # cabeca aux multi-classe -> logits [N,7]; reduz a score ESCALAR de erro (1 - softmax[clean]),
+    # mesma logica de evaluate._aux_err, p/ casar a forma com dec.scores() na fusao (corrige o
+    # ValueError de np.stack em multi-classe).
+    _mc = cfg.train.multiclass
+    aux_tr = _aux_err(aux_tr_raw, _mc); aux_va = _aux_err(aux_va_raw, _mc); aux_te = _aux_err(aux_te_raw, _mc)
 
     # --- decisao: prototipo do limpo (treino) + fusao calibrada na VAL ---
     protos = fit_prototypes(z_tr[tr["label"] == 0], k=cfg.decision.k_prototypes, seed=cfg.seed)
@@ -124,6 +129,8 @@ def main() -> None:
     # --- limiar fixado na VAL (sem data-snooping) ---
     if objective == "precision":
         thr, info = select_threshold_for_precision(fused_va, va["label"], target)
+    elif objective == "specificity":
+        thr, info = select_threshold_for_specificity(fused_va, va["label"], cfg.decision.target_specificity)
     else:
         thr, info = select_threshold_max_f1(fused_va, va["label"])
 
