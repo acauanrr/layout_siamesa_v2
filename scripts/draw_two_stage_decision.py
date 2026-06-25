@@ -2,7 +2,7 @@
 """Diagrama DETALHADO da decisao em dois estagios (bloco S6 do pipeline). Bilingue.
 
 Foco: responder COMO funciona o Estagio 2 (categoria). Mostra que ambos os estagios
-reaproveitam o MESMO vetor z (128-d) ja produzido pela cabeca de projecao g(.):
+reaproveitam o MESMO vetor z (64-d) ja produzido pela cabeca de projecao g(.):
   - Estagio 1 (gate): fusao por REGRESSAO LOGISTICA de [1-cos(z,prototipo limpo), 1-P(clean)].
   - Estagio 2 (categoria): NEAREST CATEGORY PROTOTYPE por cosseno (protótipo = media do z
     por categoria no treino). Sem rede nova, sem MLP decisor, sem clustering ao vivo.
@@ -39,13 +39,13 @@ STR = {
     "pt": {
         "_out": "decisao_two_stage",
         "title": "Decisão em dois estágios",
-        "subtitle": ("ambos os estágios reaproveitam o MESMO vetor z (128-d, L2-norm) já produzido "
+        "subtitle": ("ambos os estágios reaproveitam o MESMO vetor z (64-d, L2-norm) já produzido "
                      "pela cabeça de projeção g(·) — nenhuma rede é aplicada de novo"),
-        "z_title": "z · 128-d", "z_body": "L2-norm\n(saída de g(·))", "z_note": "1 vetor por imagem",
+        "z_title": "z · 64-d", "z_body": "L2-norm\n(saída de g(·))", "z_note": "1 vetor por imagem",
         "s1_tag": "ESTÁGIO 1", "s1_sub": "— GATE: “tem erro?”  (binário)",
         "proto_t": "ramo PROTÓTIPO",
         "proto_b": "score_proto = 1 − cos(z, protótipo limpo)\nprotótipo limpo = média dos z\nlimpos de treino (k=1)",
-        "aux_t": "ramo AUXILIAR", "aux_b": "aux_err = 1 − P(clean)\ncabeça Linear 128→7 · softmax",
+        "aux_t": "ramo AUXILIAR", "aux_b": "aux_err = 1 − P(clean)\ncabeça Linear 64→7 · softmax",
         "fus_t": "FUSÃO",
         "fus_b": "Regressão Logística\n( [score_proto , aux_err] )\n→  p(erro)\ncalibrada na VAL livre de confound",
         "thr_t": "limiar", "thr_b": "max-F1 (padrão) /\nprecisão / especificidade",
@@ -62,19 +62,19 @@ STR = {
                      ("geometria", "distortion · orientation")],
         "callout": ("Estágio 2 reaproveita o MESMO z  ·  NENHUMA rede/siamesa aplicada de novo  ·  "
                     "NENHUM MLP decisor (a cabeça aux é só diagnóstico)  ·  sem k-means (k=1 = média de classe)"),
-        "footer": ("treino (offline): g(·) molda z por SupCon + 0.6·CE; protótipos = médias de classe no z.   "
+        "footer": ("treino (offline): g(·) molda z por SupCon + 0.3·CE; protótipos = médias de classe no z.   "
                    "inferência: 1 produto escalar + arg max — sem pesos treinados no Estágio 2."),
     },
     "en": {
         "_out": "two_stage_decision_en",
         "title": "Two-stage decision",
-        "subtitle": ("both stages reuse the SAME z vector (128-d, L2-norm) already produced "
+        "subtitle": ("both stages reuse the SAME z vector (64-d, L2-norm) already produced "
                      "by the projection head g(·) — no network is applied again"),
-        "z_title": "z · 128-d", "z_body": "L2-norm\n(output of g(·))", "z_note": "1 vector per image",
+        "z_title": "z · 64-d", "z_body": "L2-norm\n(output of g(·))", "z_note": "1 vector per image",
         "s1_tag": "STAGE 1", "s1_sub": "— GATE: “is there an error?”  (binary)",
         "proto_t": "PROTOTYPE branch",
         "proto_b": "score_proto = 1 − cos(z, clean prototype)\nclean prototype = mean of clean\ntrain z (k=1)",
-        "aux_t": "AUXILIARY branch", "aux_b": "aux_err = 1 − P(clean)\nLinear 128→7 head · softmax",
+        "aux_t": "AUXILIARY branch", "aux_b": "aux_err = 1 − P(clean)\nLinear 64→7 head · softmax",
         "fus_t": "FUSION",
         "fus_b": "Logistic Regression\n( [score_proto , aux_err] )\n→  p(error)\ncalibrated on confound-free VAL",
         "thr_t": "threshold", "thr_b": "max-F1 (default) /\nprecision / specificity",
@@ -91,7 +91,7 @@ STR = {
                      ("geometry", "distortion · orientation")],
         "callout": ("Stage 2 reuses the SAME z  ·  NO network/siamese applied again  ·  "
                     "NO MLP decider (the aux head is diagnostic only)  ·  no k-means (k=1 = class mean)"),
-        "footer": ("training (offline): g(·) shapes z via SupCon + 0.6·CE; prototypes = class means in z.   "
+        "footer": ("training (offline): g(·) shapes z via SupCon + 0.3·CE; prototypes = class means in z.   "
                    "inference: 1 dot product + arg max — no trained weights in Stage 2."),
     },
 }

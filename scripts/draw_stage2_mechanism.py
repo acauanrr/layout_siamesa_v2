@@ -55,7 +55,7 @@ STR = {
         "step3": "3)  mapa fixo 6→3  ⇒  super-classe", "coarse_badge": "deslocado",
         "infer": "inferência = 1 produto escalar + arg max  ·  sem pesos treinados no Estágio 2  ·  sem k-means (k=1)",
         "callout": ("Reaproveita o MESMO z do Estágio 1  ·  nenhuma rede/siamesa aplicada de novo  ·  "
-                    "a cabeça aux (MLP 128→7) é só DIAGNÓSTICO, não decide  ·  separação = nearest-centroid no z do SupCon"),
+                    "a cabeça aux (MLP 64→7) é só DIAGNÓSTICO, não decide  ·  separação = nearest-centroid no z do SupCon"),
     },
     "en": {
         "_out": "stage2_prototype_en",
@@ -73,7 +73,7 @@ STR = {
         "step3": "3)  fixed map 6→3  ⇒  super-class", "coarse_badge": "displaced",
         "infer": "inference = 1 dot product + arg max  ·  no trained weights in Stage 2  ·  no k-means (k=1)",
         "callout": ("Reuses the SAME z from Stage 1  ·  no network/siamese applied again  ·  "
-                    "the aux head (MLP 128→7) is DIAGNOSTIC only, doesn't decide  ·  separation = nearest-centroid in SupCon's z"),
+                    "the aux head (MLP 64→7) is DIAGNOSTIC only, doesn't decide  ·  separation = nearest-centroid in SupCon's z"),
     },
 }
 

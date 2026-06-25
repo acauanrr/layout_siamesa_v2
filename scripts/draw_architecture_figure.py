@@ -172,16 +172,16 @@ def main():
 
     hcx = 8.10
     title_body(ax, 7.05, 4.30, 2.10, 1.66, "trained", "cabeça de projeção  g(·)",
-               "pesos compartilhados (siamesa)\nLinear 1152→256 → GELU → 128\ntreinada",
+               "pesos compartilhados (siamesa)\nLinear 1152→256 → GELU → 64\ntreinada",
                ts=10.0, bs=8.1, title_dy=0.10, lw=2.0)
     state_tab(ax, hcx, 6.55, "trained", 5.96)
     arrow(ax, (6.80, 5.10), (7.03, 5.10))
 
     # z vector + perda
-    title_body(ax, 7.10, 3.05, 2.00, 0.80, "zvec", "z  ·  128-d", "vetor L2-normalizado",
+    title_body(ax, 7.10, 3.05, 2.00, 0.80, "zvec", "z  ·  64-d", "vetor L2-normalizado",
                ts=10.0, bs=8.0, title_dy=-0.02)
     arrow(ax, (hcx, 4.28), (hcx, 3.87), lw=1.6, ms=12)
-    ax.text(hcx, 2.50, "perda = SupCon(z)  +  0.6 · CE(aux, 7 classes)",
+    ax.text(hcx, 2.50, "perda = SupCon(z)  +  0.3 · CE(aux, 7 classes)",
             ha="center", va="center", fontsize=8.3, color=INK, fontstyle="italic",
             bbox=dict(boxstyle="round,pad=0.4", fc="#f4f1fb", ec=COL["zvec"][1], lw=1.1))
 
@@ -206,7 +206,7 @@ def main():
     title_body(ax, 9.85, 6.78, 2.55, 1.05, "sub", "protótipo LIMPO",
                "1 − cos(z, protótipo limpo)\n← clustering", ts=9.2, bs=8.0)
     title_body(ax, 9.85, 5.50, 2.55, 1.05, "sub", "cabeça auxiliar",
-               "Linear 128→7 softmax\nP(erro) = 1 − P(clean)", ts=9.2, bs=8.0)
+               "Linear 64→7 softmax\nP(erro) = 1 − P(clean)", ts=9.2, bs=8.0)
     # fork z -> ramos
     ax.plot([9.70, 9.70], [6.025, 7.305], color=Z, lw=1.6, zorder=4)
     arrow(ax, (9.53, 6.70), (9.70, 6.70), color=Z, lw=1.6, ms=1, z=4)
@@ -259,8 +259,8 @@ def main():
 
     # ---------------------------------------------------------- rodape honesto
     ax.text(0.42, 0.28,
-            "held-out honesto:  sintético livre de confound AUROC 0.72 (AP 0.89)  ·  "
-            "subconjunto controlado 0.71 (> confound 0.38)  ·  "
+            "held-out honesto:  sintético livre de confound AUROC 0.71 (AP 0.89)  ·  "
+            "subconjunto controlado 0.69 (> confound 0.38)  ·  "
             "global ainda NÃO vence a resolução trivial (0.99).   "
             "Alavanca decisiva = telas limpas diversas, não tuning.",
             ha="left", va="center", fontsize=7.8, color=MUTE)
