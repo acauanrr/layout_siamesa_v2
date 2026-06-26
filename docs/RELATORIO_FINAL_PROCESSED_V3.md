@@ -18,8 +18,8 @@
    - **Detecção erro/não-erro** (medida justa, livre de confound): **AUROC 0.72** (acaso 0.50),
      acurácia balanceada **0.68**. Nos erros reais, no ponto de operação: **acurácia 0.58,
      precisão 0.70**.
-   - **Tipo de erro:** grosso (2 super-classes) **acurácia 0.63 / F1 0.63**; fino (4 classes)
-     **acurácia 0.40 / F1 0.34** — confiável só em `black_bars`.
+   - **Tipo de erro** (k-NN de categoria): grosso (2 super-classes) **acurácia 0.64 / F1 0.64**;
+     fino (4 classes) **acurácia 0.43 / F1 0.35** — confiável só em `black_bars`.
 4. **Melhor métrica para medir aprendizado:** **AUROC livre de confound** (a sonda sintética de
    resolução constante). É a única que não dá para fraudar com o atalho do device, é independente
    de base-rate e de limiar, e já é o critério de early-stop. **Evite** liderar com acurácia/AUROC
@@ -104,29 +104,30 @@ na validação):
 
 ## 4. Pergunta 2 — "Que tipo de erro é?" (Estágio 2, só em telas de erro)
 
-O Estágio 2 atribui categoria **apenas** a telas já classificadas como erro (protótipo de categoria
-no espaço aprendido). Duas taxonomias:
+O Estágio 2 atribui categoria **apenas** a telas já classificadas como erro (**k-NN de categoria**
+no espaço aprendido — adotado por dar ganho modesto sobre o protótipo, ver
+[`COMPARACAO_KNN_TRIPLET.md`](COMPARACAO_KNN_TRIPLET.md)). Duas taxonomias:
 
 | Taxonomia | Acurácia | F1-macro | IC95 (F1) | leitura |
 |---|---:|---:|---|---|
-| **Grossa — 2 super-classes** (`dead_region`, `displaced_content`) ⭐ | **0.627** | **0.626** | [0.51–0.74] | **primária** (tem poder estatístico) |
+| **Grossa — 2 super-classes** (`dead_region`, `displaced_content`) ⭐ | **0.642** | **0.641** | [0.52–0.75] | **primária** (tem poder estatístico) |
 | Grossa, condicionada ao gate (produção) | 0.667 | 0.643 | — | só erros que o Estágio 1 pegou |
-| Fina — 4 classes | 0.403 | 0.336 | [0.25–0.42] | exploratória (acaso 0.25) |
+| Fina — 4 classes | 0.433 | 0.354 | [0.25–0.43] | exploratória (acaso 0.25) |
 
 **Por classe (taxonomia fina, oráculo):**
 
 | classe | precisão | recall | F1 | detecção (recall@op, Est.1) | suporte |
 |---|---:|---:|---:|---:|---:|
 | `black_bars` | **0.786** | 0.500 | **0.611** | 0.727 | 22 |
-| `overlay` | 0.433 | 0.619 | 0.510 | 0.476 | 21 |
-| `empty_space` | 0.231 | 0.214 | 0.222 | 0.571 | 14 |
+| `overlay` | 0.424 | 0.667 | 0.519 | 0.476 | 21 |
+| `empty_space` | 0.286 | 0.286 | 0.286 | 0.571 | 14 |
 | `disordered_layout` | 0.000 | 0.000 | 0.000 | 0.500 | 10 |
 
 **Leitura honesta:**
 - **Funciona bem só em `black_bars`** (precisão 0.79, melhor detectada e melhor classificada).
 - `overlay` é mediano; `empty_space` e `disordered_layout` são fracos (este último, com n=10,
   fica em zero — sem poder estatístico e visualmente confundível com os demais).
-- **Reporte a taxonomia grossa como primária** (acc 0.63) e a fina como exploratória. A fina sobe
+- **Reporte a taxonomia grossa como primária** (acc 0.64) e a fina como exploratória. A fina sobe
   pouco acima do acaso (0.25) fora de `black_bars`.
 
 ---

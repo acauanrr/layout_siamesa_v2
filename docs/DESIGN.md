@@ -132,7 +132,8 @@ imagem ─► padding CINZA até quadrado + resize 518×518 (+ máscara de patch
 ## 5. Resultados (teste held-out · `processed_v3`)
 
 Config congelada após seleção íntegra na val + estabilidade multi-seed/1-SE; teste = **108 imagens**
-(41 limpas + 67 erros), processado **uma única vez** (`evaluate.py --final-test`). Decisor canônico = **protótipo**.
+(41 limpas + 67 erros), processado **uma única vez** (`evaluate.py --final-test`). Gate = **protótipo**;
+categoria (Estágio 2) = **k-NN** (`stage2_method: knn`, ver §8).
 
 ### Estágio 1 — "tem erro?"
 | Avaliação (TESTE) | Modelo | Baseline de confound | Leitura |
@@ -146,9 +147,9 @@ recall 0.58 · especificidade 0.585 · F1 0.63 · MCC 0.16 (TP39/TN24/FP17/FN28;
 ⚠️ A **AP 0.90** da sonda **engana** (80% positivos → acaso 0.80); o sinal real é o **AUROC 0.72**
 (acaso 0.50). A acurácia honesta livre-de-confound é a **balanceada 0.68**.
 
-### Estágio 2 — categoria (n=67 erros)
-Taxonomia **grossa primária** (2 super-classes): F1-macro **0.63** · acc 0.63 [IC95 0.51–0.74].
-Taxonomia **fina** (4 classes): F1-macro **0.34** · acc 0.40. `black_bars` é a classe forte
+### Estágio 2 — categoria (n=67 erros, decisor **k-NN**)
+Taxonomia **grossa primária** (2 super-classes): F1-macro **0.64** · acc 0.64 [IC95 0.52–0.75].
+Taxonomia **fina** (4 classes): F1-macro **0.35** · acc 0.43. `black_bars` é a classe forte
 (precisão 0.79, F1 0.61); `disordered_layout`/`empty_space` são fracas. Artefatos visuais e métricas
 por classe: `artifacts/reports/processed_v3/` (`scripts/report_processed_v3.py`).
 
@@ -214,17 +215,19 @@ regra é sobre o **TESTE**; `val_*` vêm de `processed/VAL` e já sustentam o ea
 ---
 
 ## 8. Estágio 2 — categoria (limitação estrutural)
-Decisor canônico = **protótipo de categoria** (`1−cos` ao protótipo, mesma matemática do gate); a cabeça
-aux fica como **diagnóstico**. Avaliado **condicional ao gate E1** (= produção) e oráculo. **Taxonomia
-grossa primária** (2 super-classes, `manifest`): `dead_region` (black_bars+empty_space) ·
-`displaced_content` (overlay+disordered). A fina de 4 é **secundária/exploratória**.
+Decisor canônico = **k-NN de categoria** (média top-k da similaridade aos erros de treino por classe;
+adotado por dar ganho modesto sobre o protótipo — coarse 0.626→0.641, ver
+[`COMPARACAO_KNN_TRIPLET.md`](COMPARACAO_KNN_TRIPLET.md)); protótipo e cabeça aux ficam como
+**diagnóstico**. Avaliado **condicional ao gate E1** (= produção) e oráculo. **Taxonomia grossa
+primária** (2 super-classes, `manifest`): `dead_region` (black_bars+empty_space) · `displaced_content`
+(overlay+disordered). A fina de 4 é **secundária/exploratória**.
 
 Há um **teto de separabilidade nas features DINOv2**: um classificador direto (LogReg/kNN) sobre os
 embeddings crus das categorias atinge F1-macro baixo; a cabeça aprendida fica no/levemente acima desse
 teto. Causas estruturais: (i) categorias **semanticamente próximas** (regiões mortas vs deslocadas);
 (ii) rótulo **single-label** para erros que **coocorrem**; (iii) classes com **n pequeno**. O F1
-0.34(fino)→0.63(grosso) é em boa parte efeito de **agregar 4→2 classes**, não de melhor modelo — e o
-IC95 grosso [0.51–0.74] tem limite inferior perto do acaso (0.5). **Alavancas:** mais dados por
+0.35(fino)→0.64(grosso) é em boa parte efeito de **agregar 4→2 classes**, não de melhor modelo — e o
+IC95 grosso [0.52–0.75] tem limite inferior perto do acaso (0.5). **Alavancas:** mais dados por
 categoria, rótulo **multi-rótulo**. Reportar sempre com o IC.
 
 ---
