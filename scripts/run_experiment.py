@@ -193,6 +193,11 @@ def build_report(emb_dir: Path, rep_dir: Path, cfg_path: Path) -> dict:
     e2_coarse_ci = _g(e2, "oraculo", "grossa", "ci95_f1_macro")
     e2_fine = _g(e2, "oraculo", "fina", "por_prototipo", "f1_macro")
     e2_cond = _g(e2, "condicional_ao_gate", "grossa", "f1_macro")
+    # contagem DINAMICA de classes do Estagio 2 (deriva do dataset, nao hardcode): o Estagio 2 so
+    # categoriza ERROS -> grossa = super-classes de erro (ex.: 2), fina = classes de erro (ex.: 4).
+    n_coarse = len(_g(e2, "oraculo", "grossa", "classes", default=[]) or [])
+    n_fine = len(_g(e2, "oraculo", "fina", "por_prototipo", "classes", default=[]) or [])
+    chance_fine = (1.0 / n_fine) if n_fine else 0.0
 
     # --- VEREDITO automatico (data-driven, honesto) ---
     verdict = []
@@ -320,7 +325,7 @@ detected = **{worst_det or '—'}** · best **classified** = **{best_cls or '—
     # --- markdown de apresentacao ---
     md = f"""# Experiment results — UI layout-error detector (siamese head · frozen DINOv2)
 
-> **Config:** `{cfg_path.name}` · **Dataset:** `data/processed/` (single source of truth, corrected) ·
+> **Config:** `{cfg_path.name}` · **Dataset:** `data/processed_v3` (single source of truth, flat + labels.csv) ·
 > **Held-out:** {n_test} images ({n_clean} clean + {n_err} errors), test **locked** and evaluated **once**.
 > Selection/calibration **on validation only** (anti-leakage protocol).
 
@@ -380,12 +385,12 @@ Confusion matrix (gate): **TP={conf['TP']} · TN={conf['TN']} · FP={conf['FP']}
 
 | Taxonomy | macro-F1 | 95% CI | note |
 |---|---|---|---|
-| **Coarse (3 super-classes)** ⭐ | **{_f(e2_coarse)}** | {_ci(e2_coarse_ci)} | primary (statistical power) |
+| **Coarse ({n_coarse} super-classes)** ⭐ | **{_f(e2_coarse)}** | {_ci(e2_coarse_ci)} | primary (statistical power) |
 | Coarse, gate-conditioned (production) | {_f(e2_cond)} | — | only errors flagged by Stage 1 |
-| Fine (6 classes) | {_f(e2_fine)} | — | secondary/exploratory (structural ceiling) |
+| Fine ({n_fine} classes) | {_f(e2_fine)} | — | secondary/exploratory (structural ceiling) |
 
-> ⚠️ The coarse macro-F1 is higher because it is a **3**-class task (aggregation of the 6 fine
-> classes), **not** because the model got better; the lower CI bound is near chance (0.33).
+> ⚠️ The coarse macro-F1 is higher because it is a **{n_coarse}**-class task (aggregation of the {n_fine} fine
+> classes), **not** because the model got better; the lower CI bound is near chance ({_f(chance_fine,2)}).
 > Always report **with the CI**.
 
 {percls_md}## 6. VERDICT — does the model work on this dataset?

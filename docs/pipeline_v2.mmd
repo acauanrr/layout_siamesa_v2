@@ -1,48 +1,49 @@
 graph TD
     %% =====================================================================
     %% Pipeline — UI layout-error detector (siamese head over frozen DINOv2)
-    %% Two stages: (1) "is there an error?" gate · (2) error category
+    %% Dataset: data/processed_v3 · Two stages: (1) "is there an error?" gate · (2) error category
+    %% Reflects the FROZEN config used in the experiments (configs/default.yaml)
     %% =====================================================================
 
     %% ---------- 1. DATA SOURCES ----------
-    subgraph S1["1 · Data sources (raw)"]
+    subgraph S1["1 · Data sources (raw · data/input)"]
         direction TB
-        CLEAN["data/input/no_erros/<br/>172 clean screens<br/>ALL 2076×2152 — single device<br/>⚠ resolution confound"]
-        ERR["data/input/errors_dataset/&lt;category&gt;/<br/>369 real errors · 6 categories<br/>black_bars · disordered_layout · distortion ·<br/>empty_space · orientation · overlay"]
+        CLEAN["clean screens<br/>172 real · ALL 2076×2152 — single device<br/>⚠ resolution confound (also single form-factor)"]
+        ERR["real errors · 4 categories<br/>277 real · black_bars · disordered_layout ·<br/>empty_space · overlay<br/>(distortion + orientation REMOVED)"]
     end
 
     %% ---------- 2. SPLIT + SINGLE SOURCE OF TRUTH ----------
-    SPLIT["build_splits.py<br/>grouped (ticket + session/dHash) +<br/>stratified by category · 0 leakage<br/>train 330 · val 81 · test 130"]
-    PROC[("data/processed/ — SINGLE SOURCE OF TRUTH<br/>real per-category + synthetic")]
+    SPLIT["rebuild_processed_v3.py<br/>dedup (717→449 unique) · grouped by ticket<br/>+ stratified · 0 leakage<br/>train 273 real · val 68 · test 108"]
+    PROC[("data/processed_v3/ — SINGLE SOURCE OF TRUTH<br/>flat layout + labels.csv (path,split,source,category,…)")]
 
     %% ---------- 3. ANTI-CONFOUND AUGMENTATION (train only) ----------
     subgraph S3["3 · Anti-confound augmentation (train only)"]
         direction TB
-        SYN["Synthetic ERRORS injected in clean screens<br/>SAME resolution (synthetic.py · +420)<br/>→ breaks confound from the ERROR side"]
-        REF["REFLOW clean variants (reflow.py · +420)<br/>scroll · dual-pane · aspect-ratio · spacing<br/>→ breaks confound from the CLEAN side"]
+        SYN["Synthetic ERRORS injected in clean screens<br/>SAME resolution (synthetic.py · +419)<br/>→ breaks confound from the ERROR side"]
+        REF["REFLOW clean variants + benign aug (reflow.py · +420)<br/>scroll · dual-pane · aspect-ratio · spacing<br/>+ resolution round-trip → breaks confound from the CLEAN side"]
     end
 
     %% ---------- 4. BACKBONE + FEATURES ----------
-    PRE["Preprocess: gray-pad to 518×518 + patch mask<br/>(geometry.py)"]
-    BB["DINOv2 ViT-S/14 ❄ FROZEN<br/>CLS + mean/std of patch tokens = 1152-d"]
+    PRE["Preprocess: gray-pad to 518×518 + patch mask<br/>(geometry.py · masks padding in patch stats)"]
+    BB["DINOv2 ViT-S/14 ❄ FROZEN<br/>CLS + mean/std of CONTENT patch tokens = 1152-d"]
     EMB[("Cached embeddings .npz<br/>artifacts/embeddings/")]
 
     %% ---------- 5. TRAINING (only trainable part) ----------
-    HEAD["Siamese projection head g(·) 🎯 TRAINABLE (~330k)<br/>→ z ∈ 128-d (L2-normalized)<br/>Loss = SupCon(z) + 0.6·CE(aux, 7 classes)<br/>early-stop on confound-free val gate"]
+    HEAD["Siamese projection head g(·) 🎯 TRAINABLE (~314k)<br/>1152 → 256 → z ∈ 64-d (L2-normalized)<br/>Loss = SupCon(z, τ=0.1) + 0.3·CE(aux, 5 classes)<br/>early-stop on confound-free val gate (AUROC)"]
 
     %% ---------- 6. TWO-STAGE DECISION ----------
     subgraph S6["6 · Two-stage decision"]
         direction TB
-        G1{"Stage 1 — GATE: is there an error?<br/>fusion[dist. to clean prototype, 1−P(clean)]<br/>threshold calibrated on confound-free val"}
-        G2["Stage 2 — CATEGORY (only if error)<br/>nearest category prototype in z-space<br/>→ 3 coarse super-classes"]
+        G1{"Stage 1 — GATE: is there an error?<br/>fusion[dist. to clean prototype, 1−P(clean)]<br/>threshold = specificity-first (target 0.80)<br/>calibrated on confound-free val"}
+        G2["Stage 2 — CATEGORY (only if error)<br/>nearest category prototype in z-space<br/>→ 4 fine classes / 2 coarse super-classes"]
     end
 
     %% ---------- 7. HONEST EVALUATION + OUTPUTS ----------
     subgraph S7["7 · Honest evaluation & outputs"]
         direction TB
         EVAL["evaluate.py --final-test<br/>(test LOCKED by protocol · read once)<br/>vs confound baselines · falsifiability · 95% CI"]
-        REP["run_experiment.py →<br/>EXPERIMENT_RESULTS.md / .json<br/>confusion matrices · per-class chart"]
-        VIZ["visualize.py →<br/>train/test clusters (before × after)"]
+        REP["run_experiment.py → EXPERIMENT_RESULTS.md/.json<br/>report_processed_v3.py → confusion matrices<br/>(binary + 5-class) · per-class precision/recall/AUROC"]
+        VIZ["clusters train/test by category<br/>(PNG + interactive HTML · UMAP of z)"]
     end
 
     %% ===================== EDGES =====================
@@ -51,7 +52,7 @@ graph TD
     SPLIT -->|"materialize"| PROC
     CLEAN -. "inject errors (same res)" .-> SYN
     CLEAN -. "legit layout changes" .-> REF
-    PROC -->|"scan tree"| PRE
+    PROC -->|"scan labels.csv"| PRE
     SYN -->|"train only"| PRE
     REF -->|"train only"| PRE
     PRE --> BB

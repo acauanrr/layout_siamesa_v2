@@ -1,6 +1,6 @@
 # Experiment results — UI layout-error detector (siamese head · frozen DINOv2)
 
-> **Config:** `default.yaml` · **Dataset:** `data/processed/` (single source of truth, corrected) ·
+> **Config:** `default.yaml` · **Dataset:** `data/processed_v3` (single source of truth, flat + labels.csv) ·
 > **Held-out:** 108 images (41 clean + 67 errors), test **locked** and evaluated **once**.
 > Selection/calibration **on validation only** (anti-leakage protocol).
 
@@ -60,12 +60,12 @@ Confusion matrix (gate): **TP=39 · TN=24 · FP=17 · FN=28**
 
 | Taxonomy | macro-F1 | 95% CI | note |
 |---|---|---|---|
-| **Coarse (3 super-classes)** ⭐ | **0.626** | [0.51–0.74] | primary (statistical power) |
+| **Coarse (2 super-classes)** ⭐ | **0.626** | [0.51–0.74] | primary (statistical power) |
 | Coarse, gate-conditioned (production) | 0.643 | — | only errors flagged by Stage 1 |
-| Fine (6 classes) | 0.336 | — | secondary/exploratory (structural ceiling) |
+| Fine (4 classes) | 0.336 | — | secondary/exploratory (structural ceiling) |
 
-> ⚠️ The coarse macro-F1 is higher because it is a **3**-class task (aggregation of the 6 fine
-> classes), **not** because the model got better; the lower CI bound is near chance (0.33).
+> ⚠️ The coarse macro-F1 is higher because it is a **2**-class task (aggregation of the 4 fine
+> classes), **not** because the model got better; the lower CI bound is near chance (0.25).
 > Always report **with the CI**.
 
 ## 5. PER-CLASS metrics (per error category — coordinator request)
