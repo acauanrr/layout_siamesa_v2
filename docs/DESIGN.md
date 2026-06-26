@@ -1,529 +1,264 @@
-# Design — Rede Siamesa para detecção binária de erro de layout em UI
+# Design — Rede Siamesa para detecção de erro de layout em UI
 
-> Backbone: **DINOv2 ViT-S/14** (congelado) · Objetivo: dada uma imagem/print de tela,
-> dizer com **alta precisão** se ela **tem erro** de layout ou **não tem**.
+> Backbone: **DINOv2 ViT-S/14** (congelado). Objetivo: dada uma imagem/print de tela, decidir em
+> **dois estágios** — (E1) **tem erro de layout?** e (E2) **de que tipo?** — sem cair no confound dos dados.
 
-Este documento (1) avalia criticamente a descrição de rede siamesa trazida no pedido,
-(2) reporta os achados sobre os dados — que mudam tudo —, (3) propõe e justifica o design
-melhorado, e (4) mostra os resultados reais medidos neste dataset.
+Este documento (1) critica a formulação siamesa clássica para *este* problema, (2) reporta o achado
+que muda tudo — o **confound de resolução** —, (3) justifica o design implementado, e (4) mostra os
+resultados honestos medidos em `data/processed_v3`. Números atuais em
+[`RELATORIO_FINAL_PROCESSED_V3.md`](RELATORIO_FINAL_PROCESSED_V3.md); diagrama em [`pipeline.mmd`](pipeline.mmd).
 
 ---
 
-## 1. Resumo executivo (leia isto primeiro)
+## 1. Resumo executivo (leia primeiro)
 
-**O dado tem um confound quase perfeito.** As 172 imagens *sem-erro* são **todas** do
-mesmo dispositivo e da mesma resolução (**2076×2152**, telas de onboarding limpas de uma
-única sessão de captura). As 188 imagens *com-erro* são heterogêneas: 74 resoluções
-diferentes, 47 fotos de câmera, vários form factors (fold/unfold/laptop/tent). Medimos:
+**O dado tem um confound quase perfeito.** As **172** telas `clean` são **todas** do mesmo device e
+resolução (**2076×2152**, uma única sessão de captura). Os **277** erros reais são heterogêneos
+(muitas resoluções, fotos de câmera, fold/unfold/laptop/tent). Consequência medida no teste:
 
-| Classificador | AUROC (test) | Precisão | Recall |
+| Classificador | AUROC (teste) |
+|---|---|
+| **Regra trivial "resolução ≠ 2076×2152 ⇒ erro"** | **1.000** |
+| Fração de padding cinza | 1.000 |
+| LogReg sobre DINOv2 cru | 0.72 |
+| **Modelo (protótipo)** | **0.61** |
+
+Ou seja: **qualquer métrica global é ~98% trapaça** — basta olhar a resolução. Um modelo que "acerta
+95%" no teste global provavelmente detecta *device*, não *erro*.
+
+**Consequência de design:** "tem erro de layout?" só pode ser aprendido/medido honestamente se
+quebrarmos o confound. Fazemos isso **injetando erros sintéticos nas próprias telas limpas** (mesma
+resolução), criando pares onde *só o conteúdo do erro muda*. Treinado assim, o modelo detecta erro de
+**conteúdo** de forma **modesta** (held-out: AUROC **0.72** livre de confound), e — verificado — **não
+explora o atalho**: se explorasse, todas as métricas reais seriam ~1.0; são ~0.58 (as 6 provas estão
+no relatório de resultados).
+
+**Recomendação nº 1 (de dados, não de arquitetura):** para generalizar é preciso coletar telas
+`clean` que cubram a diversidade dos erros — outros devices/resoluções, fotos, landscape, laptop/tent.
+Nenhuma arquitetura supera essa lacuna de dados.
+
+---
+
+## 2. Crítica à formulação siamesa clássica
+
+A descrição clássica ("parear o alvo `x₁` com uma referência-de-sucesso `x₂` e perguntar se diferem")
+é **mal-posta aqui**, porque pressupõe **uma** referência boa canônica. Mas a classe `clean` é
+**visualmente diversa**: telas de onboarding de apps diferentes (cores, ilustrações, idiomas). Duas
+telas **limpas** de apps diferentes são legitimamente **dissimilares** — treinar "alvo vs uma
+referência boa" ensinaria a confundir **"tela diferente"** com **"tela errada"** ⇒ falso-positivo
+estrutural em qualquer tela nova.
+
+**Veredito:** mantém-se a *estrutura* siamesa (ramos de pesos compartilhados + comparação no espaço de
+embeddings), mas muda **o referente da comparação**: em vez de *uma* imagem de referência, comparamos
+contra **múltiplos protótipos do manifold `clean`** (a ideia de clustering do pedido, que está
+**certa**). Tecnicamente é uma **rede siamesa one-class / de metric learning**. O treino usa
+**Supervised Contrastive** (estável com poucos dados, sem exigir referência única); o vetor de fusão
+pareado `[z₁,z₂,|z₁−z₂|,z₁⊙z₂]` (`SiamesePairHead`) e a Contrastive Loss (`losses.py`) ficam
+disponíveis como alternativas.
+
+---
+
+## 3. Os dados (`data/processed_v3`)
+
+Dataset **plano** + `labels.csv` (reconstruído por `scripts/rebuild_processed_v3.py`: dedup
+717→**449 reais únicos**, re-split **agrupado por ticket** com **0 vazamento**, sintéticos
+regenerados). Auditoria: `scripts/audit_dataset.py`.
+
+| split | clean (real) | erro (real) | sintético | clean @2076×2152 | erro @2076×2152 |
+|---|---:|---:|---:|---:|---:|
+| train | 105 | 168 | 419 (+420 reflow) | 105/105 | 2/168 |
+| val | 26 | 42 | sonda | 26/26 | 2/42 |
+| test | 41 | 67 | sonda | 41/41 | **0/67** |
+
+| Atributo | clean | erro | Confound? |
 |---|---|---|---|
-| **Regra trivial "resolução ≠ 2076×2152 ⇒ erro"** | **0.982** | **1.000** | 0.964 |
-| LogReg só com (resolução, aspecto, é-foto) | 0.911 | — | — |
-| LogReg sobre DINOv2 cru (CLS 384-d) | 0.849 | — | — |
+| Resolução 2076×2152 | 172/172 | ~6/277 | **Crítico** — separa quase perfeito |
+| Form factor | único (`unknown`) | fold/unfold/laptop/tent | **Forte** |
+| Foto de câmera | 0 | dezenas | **Forte** |
+| Orientação landscape | 0 | algumas | Forte |
 
-Ou seja: **qualquer métrica global "de erro" neste dataset é ~98% trapaça** — basta olhar
-a resolução. Um modelo que "acerta 95%" no test global provavelmente está detectando
-*dispositivo/resolução*, **não** erro de layout.
-
-**A consequência de design:** o objetivo real ("tem erro de layout?") só pode ser
-aprendido e medido de forma honesta se quebrarmos esse confound. Fazemos isso com
-**injeção de erros sintéticos nas próprias imagens limpas** (mesma resolução/device),
-criando pares onde *só o conteúdo do erro muda*. O modelo treinado assim detecta erro de
-**conteúdo** de forma **modesta** (held-out: AUROC **0.70** / AP 0.87 no sintético livre de
-confound; ver §5), enquanto um modelo treinado só com erros reais aprende a trapacear pela
-resolução (ver §7).
-
-**Recomendação nº 1 (de dados, não de arquitetura):** para um detector que generalize, é
-preciso coletar imagens **sem-erro** que cubram a mesma diversidade das com-erro — telas
-limpas de **outros devices, outras resoluções, fotos de telas sem erro, landscape, laptop,
-tent**. Nenhuma arquitetura supera essa lacuna de dados.
+O split é **agrupado por ticket** (`IKSWW-\d+`) e por **sessão/near-dup** das limpas — imagens do mesmo
+bug/sessão nunca cruzam train/test (0 grupos cruzando; travado por `tests/test_split_isolation.py`).
+**Taxonomia (jun/2026):** reduzida de 6→**4 erros** — `distortion` e `orientation` removidas (sem
+suporte no v3). Classes: `clean` · `black_bars` · `disordered_layout` · `empty_space` · `overlay`.
 
 ---
 
-## 2. Avaliação crítica da descrição de rede siamesa do pedido
-
-A descrição trazida é o **pipeline siamês clássico genérico**, e tem dois problemas para
-**este** problema:
-
-**2.1. É orientada a texto/grafos, não a imagem.** Cita SBERT, Transformers de texto,
-GATv2 (redes em grafos), "log de execução bem-sucedida", "código estruturalmente
-correto". Nada disso se aplica a uma imagem única de UI. Aqui o sinal é **visual** e o
-extrator correto é o **DINOv2** (já decidido).
-
-**2.2. (o ponto central) A formulação "parear o alvo `x₁` com uma referência-de-sucesso
-`x₂` e perguntar se diferem" é mal-posta aqui.** Ela pressupõe que existe **uma**
-referência boa canônica. Mas a classe *sem-erro* é **visualmente diversa**: telas de
-onboarding de apps diferentes, com cores, ilustrações e idiomas distintos. Duas telas
-**limpas** de apps diferentes são legitimamente **dissimilares** — mesmo ambas corretas.
-Treinar "alvo vs uma referência boa" ensinaria o modelo a confundir **"tela diferente"**
-com **"tela errada"** ⇒ falso-positivo estrutural em qualquer app/tela novos.
-
-**Veredito:** a *estrutura* siamesa (ramos de pesos compartilhados + comparação no espaço
-de embeddings) é mantida e é correta. O que muda é **o referente da comparação**: em vez
-de comparar contra *uma* imagem de referência, comparamos contra **múltiplos protótipos do
-manifold "sem-erro"** (a ideia de clustering levantada no pedido, que está **certa** e foi
-promovida a regra de decisão). Tecnicamente isto é uma **rede siamesa one-class / de
-metric learning** — satisfaz o pedido literal ("rede siamesa, binária, alta precisão") sem
-cair na armadilha da referência única.
-
-As partes da descrição que **aproveitamos**: vetor de fusão `[z₁, z₂, |z₁−z₂|, z₁⊙z₂]`
-(implementado em `SiamesePairHead`), cabeçalho sigmoid + BCE, e a alternativa de
-**Contrastive Loss** (implementada em `losses.py`). O treino principal usa **Supervised
-Contrastive** (mais estável com poucos dados e sem exigir referência única).
-
----
-
-## 3. Achados sobre os dados (auditoria de confounds)
-
-`python scripts/build_splits.py` imprime a auditoria completa. Resumo (541 imagens; split
-agrupado por **ticket de erro** + **sessão/near-dup das telas limpas**, com **0 vazamento de
-grupo** — ver §10.4 sobre a correção do vazamento de quase-duplicatas limpas):
-
-| Atributo | sem-erro | com-erro | Confound? |
-|---|---|---|---|
-| Resolução 2076×2152 | 172 / 172 | 8 / 188 | **Crítico** — separa quase perfeito |
-| Foto (câmera) | 0 | 47 | **Forte** — foto ⇒ sempre erro |
-| Form factor no nome | 0 (todas "Screenshot_") | fold/unfold/laptop/tent | **Forte** |
-| Orientação landscape | 0 | 30 | Forte |
-| Caixa vermelha desenhada (`_boundBox`) | 0 | 2 | Anotação espúria |
-| `_competitor` (UI de concorrente) | 0 | 16 | Possível ruído de rótulo |
-
-Pontos sutis e importantes:
-- As **8** imagens com-erro que **são** 2076×2152 são o único sinal real anti-confound.
-  Dessas, **7 são `Screenshot_*` da mesma sessão** das sem-erro (quase-duplicatas de
-  domínio) e **apenas 1 é um ticket independente** (`IKSWW-130772`). O poder estatístico
-  para "alta precisão independente de confound" é, honestamente, **baixíssimo**.
-- O split é **agrupado por ticket** (`IKSWW[-_]\d+`): imagens do mesmo bug nunca cruzam
-  train/test. Verificado: 0 grupos cruzando splits.
-
----
-
-## 4. Design proposto (o que implementamos)
+## 4. Design implementado
 
 ```
-imagem ─► [resize anamórfico 518×518] ─► DINOv2 ViT-S/14 (CONGELADO)
-                                              │  CLS 384  +  mean/std dos patch tokens 37×37
-                                              ▼  = vetor base 1152-d  (cacheado em disco)
-                              ┌──────────  cabeça de PROJEÇÃO g(·)  (pesos compartilhados)
-                              │            LayerNorm→Linear(1152,256)→GELU→Drop→Linear(256,128)→L2-norm
+imagem ─► padding CINZA até quadrado + resize 518×518 (+ máscara de patch) ─► DINOv2 ViT-S/14 ❄ CONGELADO
+                                              │  CLS 384 + mean/std dos patch tokens de CONTEÚDO (37×37)
+                                              ▼  = vetor base 1152-d  (cacheado em .npz)
+                          cabeça de PROJEÇÃO g(·) (pesos compartilhados, ~314k treináveis):
+                          LayerNorm → Linear(1152,256) → GELU → Drop(0.3) → Linear(256,64) → L2-norm
+                                              ▼
+                          z ∈ S⁶³  ──► (A) score de protótipo: 1 − cos(z, protótipo-limpo-mais-próximo)
+                              │          (B) cabeça auxiliar: Linear(64→5) → P(erro) = 1 − softmax[clean]
                               ▼
-                          z ∈ S¹²⁷  ──►  (A) score de protótipo: 1 − cos(z, protótipo-limpo-mais-próximo)
-                              │          (B) cabeçalho auxiliar: Linear(128→1) = logit de erro
-                              ▼
-                       FUSÃO calibrada (LogReg de 2 features) ─► p(erro) ─► limiar p/ precisão-alvo
+                       FUSÃO calibrada (LogReg de 2 features) ─► p(erro) ─► limiar
+           perda: L = SupCon(z, τ=0.1) + 0.3 · CE(aux, 5 classes)
 ```
 
 **Por que cada escolha:**
 
-- **DINOv2 congelado.** Com ~360 imagens, fazer fine-tune dos 22M de parâmetros
-  overfittaria os confounds imediatamente. Toda a capacidade treinável fica na cabeça
-  (~330k params). Embeddings são fixos ⇒ **cacheados** (`artifacts/embeddings/*.npz`) e o
-  treino roda em segundos.
-- **Pré-processamento 518×518 — dois modos (`backbone.preprocess`), `pad` é o padrão.**
-  518 é a **única** resolução aceita pelo checkpoint (1369 patch tokens = 37×37); nunca
-  usar center-crop (descartaria topo/laterais, onde moram black-region/cropped).
-  - `resize`: resize **anamórfico** direto (espreme o aspecto; não injeta bordas).
-  - `pad` (**padrão, validado empiricamente**): padding até quadrado **preservando o
-    aspecto**, preenchido com o **cinza neutro = média do ImageNet** (vira ~0 após a
-    normalização → influência mínima; é distinto de preto e do fundo das telas), e só então
-    resize. **Preserva a geometria real do erro** (uma faixa preta não é espremida).
-  - O risco do `pad` — a *área* de cinza correlacionar com o aspect-ratio (logo com form
-    factor) — é neutralizado calculando o `mean/std` dos patch tokens **apenas na região de
-    conteúdo** (`content_patch_mask`, ver `geometry.py`).
-  - **Medição (PRÉ-correção, no test):** `pad` ≥ `resize` em todas as métricas honestas —
-    subconjunto controlado **0.865 → 0.910**, recall, detecção sintética 0.881 → 0.882.
-    (Valores absolutos predam a correção de vazamento; `compare_preprocess.py` agora roda em
-    DEV/val. O padrão qualitativo — `pad` ajuda — se mantém. Held-out honesto na §5.)
-- **CLS + estatísticas de patch (1152-d).** black-region/empty-space são anomalias de
-  **homogeneidade espacial**: o desvio-padrão dos patch tokens cai em regiões grandes
-  uniformes. O ganho de adicionar patch stats (**AUROC 0.71 → 0.88**, pré-correção) motivou o
-  `use_patch_stats: true` (padrão); re-medir na val após a Fase 0.
-- **Cabeça de projeção compartilhada = a parte "siamesa".** A mesma `g` é aplicada a
-  qualquer imagem; comparar duas imagens = comparar `z₁, z₂`. Treinada com **Supervised
-  Contrastive** (`supcon_loss`) para que limpo forme cluster compacto e erro caia fora.
-- **Cabeçalho auxiliar (B).** Detector binário direto que **não** depende do banco de
-  referências — evita o detector-de-novidade puro (que dispararia em qualquer app novo).
-- **Injeção de erros sintéticos** (`synthetic.py`) — **a alavanca anti-confound**. Para
-  cada imagem limpa 2076×2152 geramos versões com black-region/empty-space/overlay/
-  disorder/cropped, **na mesma resolução/device**. O par (limpa, corrompida) difere **só**
-  pelo conteúdo do erro ⇒ todos os confounds geométricos são constantes ⇒ o modelo é
-  forçado a aprender o **erro**, não o dispositivo. (Preview: `artifacts/reports/synthetic_preview.png`.)
+- **DINOv2 congelado.** Com ~450 imagens, fine-tunar 22M params overfittaria os confounds. Toda a
+  capacidade treinável fica na cabeça (~314k); embeddings são fixos ⇒ **cacheados** e o treino roda em segundos.
+- **Pré-processamento `pad` (padrão).** 518 é a única resolução do checkpoint (37×37 patches). `pad` =
+  padding até quadrado **preservando o aspecto**, preenchido com **cinza neutro = média ImageNet** (vira
+  ~0 após Normalize; distinto de preto e do fundo). **Preserva a geometria do erro** (uma faixa preta
+  não é espremida). O risco — a *área* de cinza correlacionar com aspect-ratio — é neutralizado
+  calculando `mean/std` dos patches **só na região de conteúdo** (`content_patch_mask`, `geometry.py`).
+  Auditoria: a fração de padding cinza dá AUROC 1.000 *no DINO cru*, mas o **masking** impede que vaze
+  para as patch-stats (768 das 1152 dims). O CLS (384 dims) ainda vê a borda — por isso a verificação
+  empírica de que o modelo não a explora (corr(score, padding)≈0.05).
+- **CLS + estatísticas de patch (1152-d).** black-region/empty-space são anomalias de **homogeneidade
+  espacial**: o desvio-padrão dos patches cai em regiões grandes uniformes (`use_patch_stats: true`).
+- **Cabeça de projeção compartilhada = a parte "siamesa".** A mesma `g` para qualquer imagem; comparar
+  duas = comparar `z₁,z₂`. Treinada com **SupCon** (limpo vira cluster compacto, erro cai fora).
+- **Cabeça auxiliar (B).** Detector direto que **não** depende do banco de referências — evita o
+  detector-de-novidade puro (que dispararia em qualquer app novo). Multi-classe (5): o gate é `1−P(clean)`.
+- **Injeção de erros sintéticos** (`synthetic.py`) — **a alavanca anti-confound** (§7).
 
-### 4.1. Regra de decisão = a ideia de clustering do pedido (corrigida)
-
-- **k protótipos** do cluster *limpo* via k-means sobre os `z` das imagens sem-erro de
-  treino (`fit_prototypes`; `k=1` basta aqui, pois o limpo é unimodal; `k>1` para o caso
-  multimodal). `score_proto(x) = 1 − cos(z_x, protótipo mais próximo)`.
-- **Fusão calibrada** de `[score_proto, aux_logit]` por uma LogReg ajustada na validação
-  (**não** `max`/OR, que maximiza recall e derruba precisão).
-- **Limiar** fixado na **validação real** para a **precisão-alvo** (0.90/0.95/0.99),
-  reportando o recall honesto resultante.
+### 4.1 Regra de decisão = clustering do pedido (corrigido)
+- **k protótipos** do cluster `clean` via k-means sobre os `z` de treino (`fit_prototypes`, k=3);
+  `score_proto(x) = 1 − cos(z_x, protótipo mais próximo)`.
+- **Fusão calibrada** de `[score_proto, aux_err]` por LogReg (**não** `max`/OR, que derruba precisão).
+- **Limiar** fixado na **validação livre de confound** — padrão **specificity-first** (alvo 0.80);
+  alternativas `f1` e `precision` (alvo 0.90/0.95).
 
 ---
 
-## 5. Resultados reais (produção: patch-stats, `pad`, real+sintético)
+## 5. Resultados (teste held-out · `processed_v3`)
 
-**Avaliação HELD-OUT honesta** (config `proj_dim=128` **congelada** após seleção íntegra na val +
-estabilidade multi-seed/1-SE; teste = **130 imagens** = 41 limpas + 89 erros; processado **uma única
-vez** via `scripts/evaluate.py --final-test`; jun/2026). Os números legados aqui (F1 0.86, P@5 1.0,
-alta-precisão 1.0@recall 0.5) foram **REVOGADOS** — mediam split com vazamento + config escolhida por
-snooping no teste (§10.4). O held-out real é modesto:
+Config congelada após seleção íntegra na val + estabilidade multi-seed/1-SE; teste = **108 imagens**
+(41 limpas + 67 erros), processado **uma única vez** (`evaluate.py --final-test`). Decisor canônico = **protótipo**.
 
-### Estágio 1 — detecção vs. baselines de confound
-
-| Avaliação (TEST) | Modelo | Baseline de confound | |
+### Estágio 1 — "tem erro?"
+| Avaliação (TESTE) | Modelo | Baseline de confound | Leitura |
 |---|---|---|---|
-| Global AUROC | 0.725 (IC95 0.67–0.84) | **resolução trivial 0.994** · padding 0.972 · DINO-cru 0.746 | ❌ não supera |
-| Falseabilidade | prediz ERRO 0.725 | prediz RESOLUÇÃO 0.721 | ❌ rastreia resolução |
-| **Controlado** (n=71, 30 err) | **0.671** (IC95 **0.576**–0.835) | confound 0.383 | ✅ supera |
-| **Sintético livre de confound** (41 vs 164) | **0.695** · AP 0.868 | — | ✅ sinal real, modesto |
+| **Sintético livre de confound** (41 limpas vs 164 erro, mesma resolução) | **AUROC 0.72** (AP 0.90) | — | ✅ sinal real (medida justa) |
+| **Controlado** (form-factor/orientação fixos) | **0.60** | 0.32 | ✅ supera o confound |
+| **Global** | 0.60 | resolução trivial **1.000** · padding **1.000** | ↓ de propósito (não trapaceia) |
 
-Ponto de operação (limiar de F1 fixado na val): acc 0.70 · F1 0.815 · **bAcc 0.544 · MCC 0.171 ·
-especificidade 0.12 · FPR 0.88** (TP86/TN5/FP36/FN3; acc IC95 0.50–0.93). O limiar, calibrado em
-**26 limpas** de val, é **instável** — inunda o teste de falso-positivo. Limiar por precisão-alvo
-(val→test): alvo 0.90 → precisão 0.805 / recall 0.371 (fp=8); alvo 0.95/0.99 → 0.781 / 0.281 (fp=7).
-**precision@K**: P@5 0.6 · P@10 0.6 · P@20 0.75.
+Ponto de operação (`specificity`, calibração livre de confound): acc **0.58** · precisão **0.70** ·
+recall 0.58 · especificidade 0.585 · F1 0.63 · MCC 0.16 (TP39/TN24/FP17/FN28; IC95 acc 0.49–0.67).
+⚠️ A **AP 0.90** da sonda **engana** (80% positivos → acaso 0.80); o sinal real é o **AUROC 0.72**
+(acaso 0.50). A acurácia honesta livre-de-confound é a **balanceada 0.68**.
 
-### Estágio 2 — categoria (n=89 erros)
-F1-macro **0.388** (protótipo) / 0.379 (aux head), dominado por ruído de amostra minúscula
-(`distortion` 0.80 em n=3; `orientation` 0.00 em n=2; `black_bars` 0.52; `overlay` 0.39).
+### Estágio 2 — categoria (n=67 erros)
+Taxonomia **grossa primária** (2 super-classes): F1-macro **0.63** · acc 0.63 [IC95 0.51–0.74].
+Taxonomia **fina** (4 classes): F1-macro **0.34** · acc 0.40. `black_bars` é a classe forte
+(precisão 0.79, F1 0.61); `disordered_layout`/`empty_space` são fracas. Artefatos visuais e métricas
+por classe: `artifacts/reports/processed_v3/` (`scripts/report_processed_v3.py`).
 
-> **Veredito honesto:** globalmente o modelo **NÃO supera** o confound de resolução (0.73 vs 0.99) e
-> a falseabilidade confirma que rastreia resolução ≈ tão bem quanto erro. Existe sinal de layout
-> **real porém modesto** no regime **controlado** (0.67, IC exclui 0.5) e **sintético** (0.70). Uma
-> alegação de **alta precisão NÃO se sustenta** (fp de um dígito, IC largo — critério #7 da
-> auditoria). O teto é dado pelo **confound de um único device**: subir depende de **novas telas
-> limpas pareadas** (Fase 1), não de mais tuning.
+> **Veredito honesto:** globalmente o modelo **não vence** o confound (0.60 vs 1.000) — *de propósito*,
+> pois não o explora. Há sinal de layout **real porém modesto** no sintético (0.72) e no controlado
+> (0.60 vs 0.32). Uma alegação de **alta precisão NÃO se sustenta** (teste pequeno, IC95 largo). O teto
+> é dado pelo **confound de um único device**: subir depende de **novas telas limpas pareadas**.
 
 ---
 
-## 6. Protocolo de avaliação honesta (por que confiar nos números)
+## 6. Protocolo de avaliação honesta
 
-`evaluate.py` reporta, e **não** trata a métrica global como headline:
+`evaluate.py` **não** trata a métrica global como headline; reporta lado a lado:
+1. **Primária = sintético livre de confound** + subconjunto **controlado**.
+2. **Baselines de confound** sempre (resolução trivial 1.000; padding 1.000; DINO cru 0.72; kNN
+   one-class 0.64). O modelo só "vale" se superar o confound no regime controlado/sintético.
+3. **Falseabilidade:** o score prediz *resolução* tão bem quanto *erro*? (degenerada no teste real —
+   ~0 erros em resolução canônica; o sinal real é o sintético, onde a resolução é constante).
+4. **Auditoria same-resolution** (os poucos erros 2076×2152), separando ticket independente de
+   quase-duplicatas de sessão.
+5. **IC bootstrap agrupado por ticket** em toda métrica; **precision@K**; **MCC, Brier, ECE,
+   especificidade, FPR**.
 
-1. **Métrica primária = subconjunto controlado** (unfold-portrait-screenshot) + **detecção
-   sintética** livre de confound.
-2. **Baselines de confound** sempre lado a lado (held-out: resolução trivial **0.994**; padding
-   0.972; DINOv2 cru 0.746; kNN one-class 0.675). O modelo só "vale" se superar o confound no
-   regime controlado/sintético — e **globalmente não supera** (ver §5).
-3. **Testes de falseabilidade:** (a) o score do modelo prediz a *resolução* tão bem quanto
-   o *erro*? (b) embaralhar rótulos dentro do estrato.
-4. **Auditoria same-resolution** (os 8 erros 2076×2152), separando o ticket independente
-   das quase-duplicatas de sessão.
-5. **IC bootstrap agrupado por ticket** em toda métrica; **precision@K**.
+**Trava do teste (anti-snooping):** `siamese.protocol.guard_path` (acionado em
+`features.load_embeddings`) levanta `TestSetAccessError` em qualquer leitura de `test*` sem a flag
+`--final-test`. Grid/ablação/visualização ficam **fisicamente impedidos** de tocar o teste; a seleção
+ranqueia só por **métricas de validação** (`val_synth_gate`). Travado por `tests/test_protocol_guard.py`.
 
----
-
-## 7. Ablação — a prova de que sintético quebra o confound
-
-> **⚠️ Números absolutos abaixo são PRÉ-correção (split com vazamento + medidos no test).** O
-> `ablation.py` agora roda em modo **DEV (val)** e o teste é trancado; o held-out honesto está na
-> §5. A ablação continua válida **qualitativamente** (o padrão importa, não os valores): "só real"
-> prediz resolução ≈ tão bem quanto erro (aprende o confound); "só sintético" derruba isso. Re-rode
-> `python scripts/ablation.py` p/ os números na val.
-
-| Treino (pré-correção) | synt AUROC | synt AP | global AUROC | controlado AUROC | →prediz **resolução** | →prediz **erro** |
-|---|---|---|---|---|---|---|
-| **real + sintético** | 0.881 | 0.966 | 0.890 | 0.865 | 0.912 | 0.890 |
-| **só sintético** | 0.861 | 0.961 | 0.668 | 0.679 | **0.657** | 0.668 |
-| **só real** | 0.752 | 0.924 | 0.933 | 0.955 | **0.919** | 0.933 |
-
-Leitura:
-- **só real** parece ótimo no global (0.933), mas prediz **resolução** (0.919) tão bem
-  quanto erro ⇒ **aprendeu o confound**; e tem a **pior** detecção de conteúdo (0.752).
-- **só sintético** detecta conteúdo (0.861) e **não** rastreia resolução (0.657) — é o
-  detector genuíno; cai no global (0.668) porque se recusa a trapacear e porque não modela
-  tipos que o sintético não cobre (fotos, glare).
-- **real + sintético** equilibra (melhor sintético + global decente), mas ainda herda algum
-  rastreamento de resolução dos erros reais.
-
-Escolha de produção: **real + sintético** (mais forte e com P@K=1.0). Para um detector
-**robusto a confound / agnóstico de device**, use **`só sintético`** (treine com
-`train.use_real_errors: false`).
+> Métricas de **treino** são **ressubstituição** (in-sample; F1≈1.0 é artefato de protótipos ajustados
+> no próprio treino) — diagnóstico de overfitting, **não** resultado.
 
 ---
 
-## 7b. Mapa de calor — onde está o erro (`localize.py`)
+## 7. Técnicas anti-confound
 
-Saída adicional de explicabilidade: além do `p(erro)` por imagem, um **mapa de anomalia
-por patch** (37×37) sobreposto na tela. `python scripts/localize.py`.
+### 7.1 Injeção de erros sintéticos (`synthetic.py`) — a alavanca
+Para cada tela limpa 2076×2152, geramos versões com black-region/empty-space/overlay/disorder/cropped
+**na mesma resolução/device**. O par (limpa, corrompida) difere **só** pelo conteúdo do erro ⇒ todos os
+confounds geométricos são constantes ⇒ o modelo é forçado a aprender o **erro**. Os 4 tipos com
+correspondente real (`black_region→black_bars`, `empty_space`, `overlay`, `disorder→disordered_layout`)
+são rotulados e alimentam o Estágio 2; `cropped` só o Estágio 1. **Prova** (ablação na val): "só real"
+prediz resolução ≈ tão bem quanto erro (aprende o confound); "só sintético" derruba isso e detecta
+conteúdo. Produção = **real + sintético**; para um detector **agnóstico de device**,
+`train.use_real_errors: false` (`configs/robust_synthonly.yaml`).
 
-- **PatchCore (padrão)** — banco de memória dos patch tokens das telas **limpas**; cada
-  patch da consulta recebe a distância ao patch limpo mais próximo. Escala **absoluta
-  calibrada** (distância "normal" entre patches limpos) → tela limpa fica **fria** (score
-  0.19) e regiões incomuns ficam quentes. Bom para **conteúdo estranho** (fotos, overlays,
-  arte fora do padrão). **Limitação honesta:** *não* localiza bem a "faixa preta", porque
-  preto também ocorre em telas limpas (não é "novidade").
-- **Geométrico (`--geometric`)** — visão computacional clássica (`geometric.py`): detecta
-  regiões grandes lisas (baixa variância local) e quase-pretas (luminância ~0), com critério
-  de **banda de borda** para excluir o fundo da tela e barras de **sistema** finas. Roda na
-  imagem **original** (vê a barra real, não o padding). **Localiza a faixa preta com
-  precisão** (onde o PatchCore falha — ver overlay de IKSWW-105455). **Mas mediu-se que NÃO
-  classifica: AUROC ≈ 0.50.** Motivo (achado honesto e instrutivo): *barra preta grande não
-  é sinal de erro* — players de vídeo têm **letterbox preto legítimo** (ex.: a tela LIMPA
-  `Screenshot_20260613_103606.png` tem barras laterais idênticas às do erro 105455), e telas
-  de onboarding limpas são legitimamente vazias. O erro é **semântico/contextual**, não o
-  pixel preto em si. → ferramenta de **EVIDÊNCIA/localização**, usada **junto** com o modelo
-  (o modelo decide "é erro"; o geométrico mostra "aqui estão as barras"), nunca como decisor.
-- **Supervisionado por sintéticos (`--supervised`, experimental)** — classificador por-patch
-  treinado nos erros injetados. **Ruidoso** e dispara em conteúdo normal, porque os erros
-  "overlay"/"disorder" produzem patches que *parecem normais* (conteúdo real deslocado) →
-  fronteira de decisão ambígua. Mantido como opção, não recomendado.
+### 7.2 Reflow + benign — anti-confound pelo lado limpo (`reflow.py`)
+Variantes **LIMPAS** (label 0) de layout legítimo — `scroll_shift`, `two_pane`, `ar_relayout`,
+`band_jitter` — injetadas nas limpas de treino (`train_reflow.npz`). São **hard-negatives** que
+expandem o cluster limpo e atacam (i) o falso-positivo estrutural (§2) e (ii) o confound: `ar_relayout`
+tira a limpa de 2076×2152, então `clean` deixa de ser monorresolução. **Não-colisão** (invariante):
+reflow **MOVE/REESCALA**, bug **MATA/TRUNCA** — validado por `scripts/audit_reflow.py` (AUROC(limpo vs
+reflow)≈0.5). `benign_augment` (round-trip de resolução + jitter foto-métrico, **on**) remove o atalho
+secundário de nitidez (vários erros reais são fotos). É **trade-off**: atenua o rastreamento do
+confound ao custo de alguma especificidade.
 
-> Realidade honesta: localizar erro de layout por-patch é **intrinsecamente limitado** aqui
-> — parte do sinal é **relacional/contextual** (alinhamento, sobreposição), não local; e até
-> o mais "visual" dos erros (faixa preta) é **ambíguo** (idêntico a letterbox de vídeo). O
-> heatmap é um **aid de atenção/evidência**, não um segmentador/classificador de defeito.
-
-## 8. O que **não** fazer (decisões registradas)
-
-- ❌ Não usar input 224/392 no DINOv2 (o checkpoint só aceita 518).
-- ⚠️ Padding **só** com cinza neutro (média ImageNet) **e** mascarando os patches de padding
-  nas estatísticas — senão a área de cinza vaza o aspect-ratio (testado: com máscara, `pad`
-  supera `resize`; sem máscara, reintroduz confound). Nunca padding **preto** (imita o erro
-  "black region").
-- ⚠️ **Calibração do limiar/fusão (regra reconciliada na §11.2):** a proibição de *data-snooping*
-  é sobre o **TESTE** (trancado por `protocol.guard_path`), **nunca** sobre a validação. Calibrar
-  na **validação livre de confound** — limpas-val reais + `val_synth` (erros) + `val_reflow`
-  (limpas) — é **legítimo** (é o mesmo princípio do early-stop honesto) e **corrige** o ponto de
-  operação instável que vinha de calibrar em só 26 limpas reais. Reportamos sempre os **dois**
-  pontos (`real_val` legado vs `confound_free`) lado a lado. **Continua proibido:** calibrar em
-  qualquer derivado do teste (`test_synth`/`test_reflow`/`test.npz`).
-- ❌ Não fundir os ramos por `max`/OR (derruba precisão); usar fusão calibrada.
-- ❌ Não fazer fine-tune/LoRA do backbone com ~360 imagens.
-- ❌ Não reportar métrica **global** como headline (é ~98% confound).
-- ❌ Não usar clustering **não-supervisionado** como decisor (alinha a app/form-factor).
-- ❌ Não prometer "precisão ≥ 0.95" como número único sem IC.
-
-## 9. Próximos passos (em ordem de impacto)
-
-1. **Coletar telas limpas diversas** (outros devices/resoluções, fotos sem erro, landscape/
-   laptop/tent). É a única alavanca que torna a métrica global significativa.
-2. Rotular os 16 `_competitor` (são UI limpa de concorrente?) e tratar ruído de rótulo.
-3. Inpaint das 2 imagens `_boundBox` (caixa vermelha) antes da extração.
-4. Enriquecer os erros sintéticos com base em telas reais (cobrir fotos/glare).
-5. Avaliação por k-fold agrupado (CV) + calibração de limiar OOF para reduzir o IC do test (130
-   imagens; o ponto de operação calibrado em 26 limpas de val é instável — ver §5).
+### 7.3 Calibração livre de confound (`decision.calibrate_on=confound_free`)
+A fusão+limiar são fixados em **limpas-val reais (0) + `val_synth` (1) + `val_reflow` (0)** — muitos
+negativos limpos + positivos livres de confound → limiar **estável**. Corrige o ponto de operação que,
+calibrado em ~26 limpas reais, inundava o teste de falso-positivo. **Reconciliação anti-snooping:** a
+regra é sobre o **TESTE**; `val_*` vêm de `processed/VAL` e já sustentam o early-stop — nunca se usa
+`test_*`. Reportam-se os dois pontos (`real_val` vs `confound_free`) lado a lado.
 
 ---
 
-## 10. Extensão multi-cluster, reorganização de dados e limpeza (jun/2026)
+## 8. Estágio 2 — categoria (limitação estrutural)
+Decisor canônico = **protótipo de categoria** (`1−cos` ao protótipo, mesma matemática do gate); a cabeça
+aux fica como **diagnóstico**. Avaliado **condicional ao gate E1** (= produção) e oráculo. **Taxonomia
+grossa primária** (2 super-classes, `manifest`): `dead_region` (black_bars+empty_space) ·
+`displaced_content` (overlay+disordered). A fina de 4 é **secundária/exploratória**.
 
-Quatro mudanças foram entregues sobre o detector binário descrito acima.
-
-### 10.1 Reorganização de dados (C)
-A fonte de erros migrou da pasta flat `with_errors/` (binária) para
-**`errors_dataset/<categoria>/`**, com 6 categorias reais (`black bars`, `disordered
-layout`, `distortion`, `empty space`, `orientation`, `overlay`). `manifest.scan_dataset`
-ganhou um parâmetro **`source`** (exclusivo: `errors_dataset` padrão | `with_errors`
-legado — nunca os dois, pois ≥40 nomes coincidem), um **mapa pasta→slug** canônico e uma
-coluna **`category`** que flui do CSV → `.npz` (`features.py`) → treino/decisão. O split
-continua **agrupado por ticket** (0 vazamento; só 3 tickets cruzam categorias) mas passou
-a ser **estratificado por categoria**, garantindo que toda classe — inclusive as raras
-(`orientation`=7, `distortion`=13) — apareça em train/val/test. Fracoes `val/test = 0.15/0.24`
-(**test ampliado** p/ >=40 telas limpas de referencia — estimativa robusta de falso-alarme:
-**41 limpas / 90 erros / 131 no test**; train 328, val 82; seed 42). O caminho binário legado é
-100% reprodutível (`--source with_errors`, `train.multiclass: false`).
-
-### 10.2 Limpeza de marcações vermelhas (D)
-`scripts/audit_red_marks.py` detecta (numpy+PIL+scipy) marcações humanas vermelhas
-(retângulos/círculos/setas) por máscara de vermelho forte + componentes conexos + heurística
-de forma (contorno oco / traço fino). Das 407 imagens, 59 foram sinalizadas; a decisão de
-exclusão foi tomada por **inspeção visual** (folhas de contato rotuladas) para evitar apagar
-conteúdo vermelho legítimo (apps de compras, vídeos, banners). **35 imagens** foram excluídas
-(30 com `_boundbox` no nome — anotação explícita, em vermelho OU azul — + 5 formas desenhadas
-confirmadas); os ~24 falsos-positivos da heurística (preço riscado, jaqueta, vestido) foram
-**preservados** e listados em `artifacts/reports/red_marks_review.csv`. Manifesto do que foi
-apagado: `red_marks_deleted.csv`. `errors_dataset/`: 407 → **372**.
-
-**Deduplicação por conteúdo (hash):** auditoria por md5 achou **3 imagens de conteúdo idêntico**
-— `IKSWW-173861` (2 imagens de "black region" catalogadas TAMBÉM em `overlay`, uma com nome
-trocado) e uma cópia literal `IKSWW-93466_..._(1)`. Removidas (mantendo a cópia na categoria
-correta, confirmada visualmente): `errors_dataset/`: 372 → **369**; dataset real **= 541 únicas**,
-**0 duplicatas**. **0 vazamento de grupo entre splits** (verificado) — porém o teste "ticket não
-cruza split" **não detectava** o vazamento de **quase-duplicatas das telas limpas** (capturas
-sequenciais da mesma sessão/dispositivo, similaridade DINO ≈ 0.99). Corrigido na **Fase 0**:
-limpas reagrupadas por **sessão (timestamp) + near-duplicate perceptual (dHash)** antes do split
-(172 arquivos → 15 grupos atômicos), travado por `tests/test_split_isolation.py`. Ver §10.4.
-
-### 10.3 Multi-cluster em DOIS ESTÁGIOS (B)
-A "ida além do binário" foi feita preservando o gate de alta precisão:
-
-- **Estágio 1 — gate "tem erro?"**: inalterado conceitualmente (distância ao protótipo
-  limpo + cabeça auxiliar + fusão calibrada + limiar). No multi-classe, `p(erro)=1−softmax[clean]`.
-- **Estágio 2 — categoria**: a cabeça `g()` é treinada com **SupCon multi-classe** (a
-  `supcon_loss` já agrupa por igualdade de rótulo — sem mudança); a cabeça auxiliar virou
-  `Linear(proj_dim, N+1)` + cross-entropy; os **batches são balanceados por classe**
-  (≥2/classe, oversample das raras). A decisão de categoria usa **protótipos por categoria**
-  (`fit_category_prototypes`, k-means dentro de cada classe) + `argmax` de similaridade.
-  Os erros **sintéticos** alimentam os dois estágios: anti-confound (todos) no Estágio 1 e,
-  rotulados, os 4 tipos com correspondente real (`black_region→black_bars`,
-  `empty_space`, `overlay`, `disorder→disordered_layout`) no Estágio 2 (`cropped` não tem
-  classe real → só Estágio 1; `distortion`/`orientation` não têm gerador).
-
-### 10.4 Grid search e o "problema do limiar" (A)
-`scripts/grid_search.py` varre o produto cartesiano de uma grade (chaves dotted), isola
-artefatos por ponto e **re-extrai embeddings só quando o eixo toca `backbone.*`/`synthetic.*`**.
-**❌ Afirmação anterior estava ERRADA (corrigido na Fase 0 — auditoria jun/2026).** O texto
-aqui dizia que a seleção de combos era "livre de data-snooping" porque usava o **AUROC sintético
-do gate** (`sintetico_livre_de_confound`). Mas essa métrica era calculada em `evaluate.py`
-**a partir de `test_synth.npz` + as imagens limpas de TESTE** — ou seja, **a seleção enxergava o
-teste** (snooping real, problema #2 da auditoria). A "melhor config" antes anunciada aqui
-(`temperature=0.05, aux_weight=0.6, proj_dim=256, k_prototypes=3`, synth-AUROC 0.81, F1 0.85…)
-fica **REVOGADA** — foi escolhida sobre derivados do teste.
-
-**Protocolo corrigido:**
-- `scripts/grid_search.py` **não importa `evaluate` nem lê nenhum `test*`**: ranqueia
-  **exclusivamente por métricas de VALIDAÇÃO** devolvidas por `train_head()` — por padrão
-  `val_synth_gate` (gate sintético livre de confound medido na **val**: protótipos vêm do
-  *train*, sonda = limpas de val + `val_synth.npz`). Independente de limiar e de confound.
-- O **TESTE é trancado programaticamente** (`siamese.protocol.guard_path`, acionado em
-  `siamese.features.load_embeddings`): qualquer leitura de `test.npz`/`test_synth.npz` sem a
-  trava liberada levanta `TestSetAccessError`. Grid/ablação/visualização ficam **fisicamente
-  impedidos** de tocar o teste.
-- O melhor combo, **depois de congelado**, é avaliado no TESTE **uma única vez** via
-  `python scripts/evaluate.py --config <vencedora> --final-test` (único ponto que chama
-  `allow_test_access()`). Em modo DEV (sem a flag) o `evaluate.py` reporta sobre a **val**.
-- Testes de integridade em `tests/test_protocol_guard.py` (grid shield) e
-  `tests/test_split_isolation.py` travam essas invariantes.
-
-> Métricas de TREINO continuam reportadas como **ressubstituição** (in-sample, p/ diagnóstico de
-> overfitting — F1 de treino ≈ 1.0 é artefato de protótipos ajustados no próprio treino, **não
-> reportar como resultado**). Os números **vinculantes** só saem do `--final-test`, uma vez,
-> após seleção íntegra — e uma alegação de alta precisão exige o **limite inferior do IC95%**
-> alcançando a meta.
-
-**Estabilizacao da selecao (IMPLEMENTADO):** o early-stop do `train.py` agora usa o **sintetico de
-VALIDACAO** (`val_synth.npz` — erros injetados nas limpas de val, mesma resolucao -> livre de
-confound), combinado com o macro-F1 de categoria, em vez do gate confundido por resolucao. Isso
-elevou o synth-AUROC do gate de **0.70 -> 0.81** e tornou o ranking do grid muito mais **estavel**
-(os melhores combos agora ficam agrupados em 0.78-0.81, sem os colapsos para ~0.50 de antes), sem
-data-snooping no TEST. `epochs=500`, `patience=80` (teto alto; o early-stop decide a parada).
-Ainda assim, com base pequena/confundida, **re-rode o grid ao mudar os dados**.
-
-### 10.5 Limitação central do Estágio 2 (achado honesto)
-A clusterização por categoria tem um **teto de separabilidade nas próprias features DINOv2**:
-um classificador direto (LogReg / kNN-5) sobre os embeddings crus das 6 categorias atinge só
-**F1-macro ≈ 0.10–0.21** (kNN-5: acc 0.375). Nossa cabeça (F1-macro 0.24) já está **no/levemente
-acima** desse teto. As causas são estruturais, não de implementação: (i) categorias
-**semanticamente sobrepostas** (black bars vs empty space vs cropped são todas "regiões";
-overlay vs disordered são "elementos deslocados"); (ii) **rótulo single-label** para erros que
-**coocorrem** na mesma tela; (iii) classes **raras** (`orientation`=1, `distortion`=2 no test)
-sem poder estatístico. O Estágio 2 é forte nas categorias visuais frequentes (`black_bars` F1
-0.67, `overlay` 0.44, `empty_space` 0.35) e satura nas demais. **Alavancas** (análogas à §1):
-mais dados por categoria rara, rótulo **multi-rótulo**, ou taxonomia mais grossa (ex.: agrupar
-distortion+disordered). A explicabilidade (heatmaps) segue **adiada** (§7b), conforme alinhado.
-
-### 10.6 Fluxo de dados: `data/processed/` como FONTE DA VERDADE
-
-Para garantir que **o modelo e as outras equipes usem exatamente o mesmo dataset**, o fluxo foi
-invertido: o modelo **não** lê mais de `data/input/`; ele lê do dataset **materializado e
-categorizado em `data/processed/`** (o mesmo que é compartilhado).
-
-```
-data/input/  (entrada bruta; novas imagens chegam aqui)
-  └─ build_splits.py      → data/splits/*.csv      (atribui split: agrupado+estratificado)
-  └─ export_processed.py  → data/processed/        (MATERIALIZA reais por categoria + sintéticos + manifest/card)
-data/processed/  (FONTE DA VERDADE — o que o modelo usa e o que se compartilha)
-  └─ extract_features.py  → artifacts/embeddings/  (VARRE a arvore processed/; paths apontam p/ processed/)
-  └─ make_synthetic.py    → val/test_synth.npz     (sonda livre de confound, de processed/{val,test}/real/clean)
-  └─ train.py / evaluate.py / visualize.py
-```
-
-- `extract_features.py` **varre a árvore** `processed/<split>/<fonte>/<categoria>/` (estrutura =
-  verdade; metadados de confound re-derivados do nome do arquivo via `manifest._parse_meta`).
-  Logo, **correções manuais** em `processed/` (mover de categoria, remover, editar pixels) são
-  honradas sem precisar de manifesto — basta re-rodar `extract_features` → `train` → `evaluate`.
-- **Não** re-rode `export_processed` após correções manuais: ele reconstrói `processed/` a partir
-  de `input/` (com `_reset_dir`) e sobrescreveria os ajustes. `export_processed` é só para
-  **ingestão** (novas imagens em `input/`).
-- O `train_synth.npz` vem de `extract_features` embedando `processed/train/synthetic/` (FONTE
-  única); `make_synthetic` cobre apenas a sonda val/test. Verificado: após o refactor, **100% dos
-  embeddings apontam para `data/processed/`** e as métricas ficam idênticas (mesmo dado, nova fonte).
-- O caminho **legado** (`extract_split` lendo `splits/*.csv`→`input/`) permanece em `features.py`
-  para reprodutibilidade binária, mas não é o fluxo padrão.
+Há um **teto de separabilidade nas features DINOv2**: um classificador direto (LogReg/kNN) sobre os
+embeddings crus das categorias atinge F1-macro baixo; a cabeça aprendida fica no/levemente acima desse
+teto. Causas estruturais: (i) categorias **semanticamente próximas** (regiões mortas vs deslocadas);
+(ii) rótulo **single-label** para erros que **coocorrem**; (iii) classes com **n pequeno**. O F1
+0.34(fino)→0.63(grosso) é em boa parte efeito de **agregar 4→2 classes**, não de melhor modelo — e o
+IC95 grosso [0.51–0.74] tem limite inferior perto do acaso (0.5). **Alavancas:** mais dados por
+categoria, rótulo **multi-rótulo**. Reportar sempre com o IC.
 
 ---
 
-## 11. Consolidação jun/2026 — técnicas portadas do projeto legado
+## 9. Localização — onde está o erro (`localize.py`, apoio)
+Saída adicional de explicabilidade: mapa de anomalia por patch (37×37) sobreposto na tela.
+- **PatchCore (padrão):** banco de memória dos patches **limpos**; cada patch da consulta recebe a
+  distância ao patch limpo mais próximo. Tela limpa fica **fria**; conteúdo estranho (fotos, overlays)
+  fica quente. **Limitação:** não localiza bem a "faixa preta" (preto também ocorre em limpas).
+- **Geométrico (`--geometric`):** CV clássica (`geometric.py`) — localiza barras pretas/vazios com
+  precisão, mas **NÃO classifica** (AUROC≈0.50): barra preta grande **não** é sinal de erro (vídeos têm
+  letterbox legítimo). É **EVIDÊNCIA/localização**, usada junto com o modelo, nunca como decisor.
 
-Estudamos o projeto anterior (`~/iats/layout_siamesa`, detector **pareado** train-synthetic/
-test-real) e portamos as três técnicas com **ganho comprovado** lá (no legado: reflow levou
-has-bug AUROC 0.62→0.80), adaptando-as ao cenário **one-class/single-image** do v2. Tudo
-**selecionado/calibrado só na validação**; teste avaliado **1×**.
+> Localizar erro de layout por-patch é **intrinsecamente limitado**: parte do sinal é
+> relacional/contextual (alinhamento, sobreposição), não local. O heatmap é **aid de atenção**, não
+> classificador.
 
-### 11.1 Reflow — negativos de layout legítimo (`reflow.py`)
-- **O quê:** variantes **LIMPAS** (label 0, `category=clean`) de mudança de layout legítima —
-  `scroll_shift`, `two_pane`, `ar_relayout`, `band_jitter` — injetadas nas limpas de treino
-  (`train_reflow.npz`, gerado por `make_synthetic.py`; entram em `train.assemble_training`).
-- **Por quê (tradução pareado→one-class):** o legado usava reflow no *target* de um par
-  negativo ("layout mudou ≠ bug"). No v2 não há par; o reflow vira **hard-negative** que
-  expande o cluster limpo. Ataca (i) o **falso-positivo estrutural** (DESIGN §2.2 — "tela
-  diferente ≠ tela errada") e (ii) o **confound de resolução pelo lado limpo**: `ar_relayout`
-  tira a limpa de 2076×2152, então a classe limpa deixa de ser monorresolução.
-- **Princípio de não-colisão (invariante):** reflow **MOVE/REESCALA** conteúdo; bug **MATA/
-  TRUNCA**. Validado **antes** de treinar por `scripts/audit_reflow.py` (sonda no DINO cru):
-  AUROC(limpo vs reflow) = **0.545** (~0.5, não colide); por operador 0.53–0.57 (nenhum >0.70).
-- **Resultado (honesto):** reduz o rastreamento absoluto do confound (falseab. resolução, val
-  0.755→0.617; teste 0.721→0.679) e sobe o sintético livre de confound (0.695→0.723), **mas**
-  custa especificidade/controlado-pela-fusão — é **trade-off**, não ganho gratuito (ver §11.4).
-  No held-out a falseabilidade ainda **não vence** o confound (prediz resolução 0.679 ≈ erro
-  0.681) — atenua, não elimina. `p_reflow_pos` (erro sobre reflow) fica **off** por padrão
-  (foi resultado **negativo** no legado).
+## 10. O que NÃO fazer (decisões registradas)
+- ❌ Input 224/392 no DINOv2 (o checkpoint só aceita 518).
+- ⚠️ Padding **só** cinza neutro **e** mascarando os patches de padding — senão vaza aspect-ratio.
+  Nunca padding **preto** (imita "black region").
+- ❌ Fundir os ramos por `max`/OR (derruba precisão) — usar fusão calibrada.
+- ❌ Fine-tune/LoRA do backbone com ~450 imagens.
+- ❌ Reportar métrica **global** como headline (é ~98% confound), ou **AP** da sonda como headline
+  (acaso 0.80) — liderar com **AUROC livre de confound**.
+- ❌ Calibrar limiar/fusão em qualquer derivado do **teste** (`test_synth`/`test_reflow`/`test.npz`);
+  calibrar na **validação** livre de confound é legítimo.
+- ❌ Prometer "precisão ≥ 0.95" como número único sem IC.
 
-### 11.2 Calibração livre de confound (`evaluate.py`, `decision.calibrate_on`)
-- **Problema:** a fusão LogReg + limiar eram fixados na val real (≈26 limpas) → ponto de
-  operação **instável** que inundava o teste de falso-positivo (especificidade 0.12, FPR 0.88;
-  e o nested-CV confirmou ser sistêmico, especificidade OOF ~0.16).
-- **Solução (lição do legado: calibrar na val sintética):** `calibrate_on="confound_free"`
-  ajusta fusão+limiar em **limpas-val reais (0) + `val_synth` (1) + `val_reflow` (0)** — muitos
-  negativos limpos + positivos livres de confound → limiar **estável**.
-- **Reconciliação com §8 (data-snooping):** a regra anti-snooping é sobre o **TESTE**
-  (`protocol.guard_path`), não sobre a validação; `val_synth`/`val_reflow` vêm de
-  `processed/VAL` e já sustentam o early-stop honesto. **Verificado por revisão adversarial:**
-  a calibração usa caminhos `val_*` literais, **nunca** `test_*`, mesmo em `--final-test`.
-  Reportamos os **dois** pontos (`real_val` vs `confound_free`) em `calibracao_comparacao`.
-- **Resultado (o ganho mais forte e robusto):** especificidade held-out **0.122→0.268**
-  (FPR 0.88→0.73; bAcc 0.54→0.57), sem perder F1. **Prova de causalidade:** no mesmo modelo,
-  `real_val` dá especificidade **0.000** (TN=0 — sinaliza toda limpa como erro) vs `0.268` do
-  `confound_free`. Na val o salto é 0.00–0.35 → 0.46–0.77.
-
-### 11.3 Estágio 2 consolidado (`evaluate.py`, `decision.stage2_method`, `manifest` grossa)
-- **Antes:** reportava **dois** decisores em paralelo (protótipo F1 0.39 **e** aux head 0.38)
-  — fonte da confusão.
-- **Agora:** **um** decisor canônico (`stage2_method="prototype"` — mesma matemática do gate,
-  `1−cos` ao protótipo de categoria); a cabeça aux vira **diagnóstico**. Avaliação **condicional
-  ao gate E1** (só erros que o E1 sinalizou = produção) **e** oráculo (todos os erros).
-- **Taxonomia grossa primária** (3 super-classes por não-colisão, `manifest.FINE_TO_COARSE`):
-  `dead_region` (black_bars+empty_space) · `displaced_content` (overlay+disordered) ·
-  `geometry` (distortion+orientation — junta as 2 raras). A fina de 6 vira **secundária**.
-- **Honestidade (achado da revisão):** o F1-macro 0.39(fino)→**0.62**(grosso) é em grande parte
-  efeito de **agregar 6→3 classes** (tarefa mais fácil) sobre as **mesmas** predições — é ganho
-  de **clareza + reportabilidade + poder estatístico**, **não** de qualidade do modelo. E o
-  **IC95 [0.375, 0.765]** tem limite inferior **perto do acaso** (0.333 p/ 3 classes) — reportar
-  sempre com o IC. O teto estrutural da taxonomia fina (§10.5) **permanece**.
-
-### 11.4 Ablação (na VALIDAÇÃO; teste não tocado) e configs prontos
-| treino (val) | sintético | controlado | falseab. resolução↓ | especificidade (calib. livre conf.) |
-|---|---|---|---|---|
-| sem-reflow | 0.771 | 0.787 | 0.755 | 0.769 |
-| com-reflow | 0.768 | 0.733 | **0.617** | 0.462 |
-
-- A **calibração** é o ganho robusto (com ou sem reflow). O **reflow** troca especificidade por
-  **menos rastreamento do confound** (a tese "detecta conteúdo, não device").
-- **Configs:** `configs/ablation_noreflow.yaml` (isola o reflow); `configs/robust_synthonly.yaml`
-  (`use_real_errors=false` — detector **agnóstico de device**: os erros reais são o que puxa o
-  modelo de volta ao confound; removê-los dá a alegação de robustez do §7, ao custo de cobrir só
-  tipos sintetizáveis).
-- **`benign_augment`** (round-trip de resolução + jitter foto-metrico nas limpas) disponível
-  (`synthetic.benign_augment`), off por padrão — remove o atalho secundário de nitidez (47 erros
-  reais são fotos).
-
-### 11.5 O que NÃO foi portado (e por quê)
-- **Termo LOCAL / |patch_diff| pareado:** no v2 não há par; o substituto (PatchCore) já existe
-  em `localize.py` mas DESIGN §7b mediu que **não** classifica (preto é legítimo em limpas).
-- **Geradores sintéticos para distortion/orientation:** colidiriam com `ar_relayout` (mudança
-  de AR é **negativo/clean** no reflow) — risco de rótulo contraditório. Adiado.
-- **Diversidade por época:** o v2 cacheia embeddings (backbone congelado), então o pool é fixo;
-  mitigado com mais variantes upfront (`n_reflow_variants`), não regeneração por época.
+## 11. Limitação central e próximos passos
+Com `clean` vindo de **um único device**, **nenhuma arquitetura demonstra "alta precisão independente
+de confound"** de forma estatisticamente sólida. Em ordem de impacto:
+1. **Coletar telas limpas diversas** (outros devices/resoluções, fotos, landscape/laptop/tent) — a
+   única alavanca que torna a métrica global significativa.
+2. Rótulo **multi-rótulo** para erros que coocorrem (melhora o Estágio 2).
+3. Enriquecer os erros sintéticos com base em telas reais (cobrir fotos/glare).
+4. Avaliação por k-fold agrupado + calibração de limiar OOF para reduzir o IC do teste (n pequeno).
