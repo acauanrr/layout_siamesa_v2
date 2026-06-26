@@ -1,0 +1,1676 @@
+{
+  "totais": {
+    "imgs": 1137,
+    "zone": 1136,
+    "other": 0
+  },
+  "corrupt": [],
+  "dup_sets": [
+    [
+      "train/real/IKSWW-100355_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-100355_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-103396_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-103396_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-103396_unfold_landscape_screenshot1.png",
+      "test/real/IKSWW-103396_unfold_landscape_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-103396_unfold_landscape_screenshot1_competitor.png",
+      "test/real/IKSWW-103396_unfold_landscape_screenshot1_competitor.png"
+    ],
+    [
+      "train/real/IKSWW-103396_unfold_landscape_screenshot2.png",
+      "test/real/IKSWW-103396_unfold_landscape_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-103396_unfold_landscape_screenshot2_competitor.png",
+      "test/real/IKSWW-103396_unfold_landscape_screenshot2_competitor.png"
+    ],
+    [
+      "train/real/IKSWW-103396_unfold_landscape_screenshot3.png",
+      "test/real/IKSWW-103396_unfold_landscape_screenshot3.png"
+    ],
+    [
+      "train/real/IKSWW-103396_unfold_landscape_screenshot4.png",
+      "test/real/IKSWW-103396_unfold_landscape_screenshot4.png"
+    ],
+    [
+      "train/real/IKSWW-105455_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-105455_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-105455_unfold_portrait_screenshot2.png",
+      "test/real/IKSWW-105455_unfold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-105455_unfold_portrait_screenshot3.png",
+      "test/real/IKSWW-105455_unfold_portrait_screenshot3.png"
+    ],
+    [
+      "train/real/IKSWW-106739_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-106739_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-106739_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-106739_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-107535_tent_screenshot1.png",
+      "val/real/IKSWW-107535_tent_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-107554_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-107554_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-107557_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-107557_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-107976_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-107976_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-107976_unfold_portrait_screenshot2.png",
+      "test/real/IKSWW-107976_unfold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-108731_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-108731_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-108756_unfold_landscape_screenshot1.png",
+      "test/real/IKSWW-108756_unfold_landscape_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-108756_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-108756_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-108763_laptop_screenshot1.png",
+      "val/real/IKSWW-108763_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-109103_laptop_screenshot1.png",
+      "test/real/IKSWW-109103_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-109311_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-109311_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-109311_fold_portrait_screenshot2.png",
+      "test/real/IKSWW-109311_fold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-109311_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-109311_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-109311_unfold_portrait_screenshot2.png",
+      "test/real/IKSWW-109311_unfold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-109510_laptop_screenshot1.png",
+      "val/real/IKSWW-109510_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-110045_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-110045_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-110045_unfold_portrait_screenshot2.png",
+      "test/real/IKSWW-110045_unfold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-110147_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-110147_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-110147_fold_portrait_screenshot2.png",
+      "test/real/IKSWW-110147_fold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-110665_unfold_landscape_screenshot2.png",
+      "test/real/IKSWW-110665_unfold_landscape_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-110665_unfold_landscape_screenshot3.png",
+      "test/real/IKSWW-110665_unfold_landscape_screenshot3.png"
+    ],
+    [
+      "train/real/IKSWW-110723_unidentified_screenshot1.png",
+      "test/real/IKSWW-110723_unidentified_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-112539_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-112539_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-113570_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-113570_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-113570_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-113570_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-114424_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-114424_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-114424_unfold_portrait_screenshot1_competitor.png",
+      "val/real/IKSWW-114424_unfold_portrait_screenshot1_competitor.png"
+    ],
+    [
+      "train/real/IKSWW-117589_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-117589_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-117589_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-117589_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-117732_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-117732_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-117815_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-117815_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-117815_unfold_portrait_screenshot1_competitor.png",
+      "val/real/IKSWW-117815_unfold_portrait_screenshot1_competitor.png"
+    ],
+    [
+      "train/real/IKSWW-118639_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-118639_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-119176_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-119176_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-121669_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-121669_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-121669_unfold_portrait_screenshot1_competitor.png",
+      "test/real/IKSWW-121669_unfold_portrait_screenshot1_competitor.png"
+    ],
+    [
+      "train/real/IKSWW-125346_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-125346_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-126946_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-126946_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-129595_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-129595_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-129595_fold_portrait_screenshot2.png",
+      "test/real/IKSWW-129595_fold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-129595_fold_portrait_screenshot3.png",
+      "test/real/IKSWW-129595_fold_portrait_screenshot3.png"
+    ],
+    [
+      "train/real/IKSWW-130862_fold_portrait_screenshot1.png",
+      "val/real/IKSWW-130862_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-130862_fold_portrait_screenshot2.png",
+      "val/real/IKSWW-130862_fold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-132986_fold_portrait_screenshot1.png",
+      "val/real/IKSWW-132986_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-133376_unidentified_screenshot1.png",
+      "val/real/IKSWW-133376_unidentified_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-134470_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-134470_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-134470_unfold_portrait_screenshot1_competitor.png",
+      "val/real/IKSWW-134470_unfold_portrait_screenshot1_competitor.png"
+    ],
+    [
+      "train/real/IKSWW-141308_laptop_screenshot1.png",
+      "test/real/IKSWW-141308_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-142258_unidentified_screenshot1.png",
+      "test/real/IKSWW-142258_unidentified_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-143211_laptop_screenshot1.png",
+      "test/real/IKSWW-143211_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-146930_unfold_landscape_screenshot1.png",
+      "test/real/IKSWW-146930_unfold_landscape_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-147263_laptop_screenshot1.png",
+      "test/real/IKSWW-147263_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-149514_laptop_screenshot1.png",
+      "val/real/IKSWW-149514_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-149514_laptop_screenshot2.png",
+      "val/real/IKSWW-149514_laptop_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-152719_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-152719_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-159368_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-159368_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-162342_unidentified_screenshot1.png",
+      "val/real/IKSWW-162342_unidentified_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-162451_fold_portrait_screenshot1.png",
+      "val/real/IKSWW-162451_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-166379_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-166379_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-166379_unfold_portrait_screenshot2.png",
+      "test/real/IKSWW-166379_unfold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-169196_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-169196_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-169196_unfold_portrait_screenshot2.png",
+      "test/real/IKSWW-169196_unfold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-169196_unfold_portrait_screenshot3.png",
+      "test/real/IKSWW-169196_unfold_portrait_screenshot3.png"
+    ],
+    [
+      "train/real/IKSWW-169373_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-169373_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-169989_fold_portrait_screenshot1.png",
+      "val/real/IKSWW-169989_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-169989_fold_portrait_screenshot1_competitor.png",
+      "val/real/IKSWW-169989_fold_portrait_screenshot1_competitor.png"
+    ],
+    [
+      "train/real/IKSWW-170104_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-170104_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-170238_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-170238_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-170238_unfold_portrait_screenshot2.png",
+      "test/real/IKSWW-170238_unfold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-170410_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-170410_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-170410_unfold_portrait_screenshot2.png.png",
+      "test/real/IKSWW-170410_unfold_portrait_screenshot2.png.png"
+    ],
+    [
+      "train/real/IKSWW-170927_laptop_screenshot1.png",
+      "test/real/IKSWW-170927_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-170927_laptop_screenshot1_competitor.png",
+      "test/real/IKSWW-170927_laptop_screenshot1_competitor.png"
+    ],
+    [
+      "train/real/IKSWW-171066_unfold_portrait_screenshot1_competitor.png",
+      "test/real/IKSWW-171066_unfold_portrait_screenshot1_competitor.png"
+    ],
+    [
+      "train/real/IKSWW-171200_laptop_screenshot1.png",
+      "val/real/IKSWW-171200_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-171235_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-171235_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-171235_unfold_portrait_screenshot2.png",
+      "test/real/IKSWW-171235_unfold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-171235_unfold_portrait_screenshot3.png",
+      "test/real/IKSWW-171235_unfold_portrait_screenshot3.png"
+    ],
+    [
+      "train/real/IKSWW-171952_laptop_screenshot1.png",
+      "test/real/IKSWW-171952_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-172029_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-172029_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-172126_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-172126_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-172177_laptop_screenshot1.png",
+      "test/real/IKSWW-172177_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-173856_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-173856_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-173861_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-173861_fold_portrait_screenshot1__black_bars.png",
+      "test/real/IKSWW-173861_fold_portrait_screenshot1__overlay.png"
+    ],
+    [
+      "train/real/IKSWW-173861_fold_portrait_screenshot2.png",
+      "test/real/IKSWW-173861_fold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-173861_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-173861_laptop_screenshot1_competitor.png",
+      "test/real/IKSWW-173861_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-173971_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-173971_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-174599_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-174599_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-174599_unfold_portrait_screenshot2.png",
+      "test/real/IKSWW-174599_unfold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-178418_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-178418_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-178418_unfold_portrait_screenshot1_competitor.png",
+      "val/real/IKSWW-178418_unfold_portrait_screenshot1_competitor.png"
+    ],
+    [
+      "train/real/IKSWW-179423_unfold_landscape_screenshot1.png",
+      "test/real/IKSWW-179423_unfold_landscape_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-180068_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-180068_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-181340_laptop_screenshot1.png",
+      "test/real/IKSWW-181340_laptop_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-181344_fold_landscape_screenshot1.png",
+      "val/real/IKSWW-181344_fold_landscape_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-182788_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-182788_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-182910_unfold_landscape_screenshot1.png",
+      "test/real/IKSWW-182910_unfold_landscape_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-186221_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-186221_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-186221_fold_portrait_screenshot2.png",
+      "test/real/IKSWW-186221_fold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-188043_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-188043_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-188050_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-188050_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-188098_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-188098_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-188194_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-188194_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-188883_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-188883_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-188888_fold_portrait_screenshot1.png",
+      "val/real/IKSWW-188888_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-188888_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-188888_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-188983_Unidentifield_screenshot1.png",
+      "test/real/IKSWW-188983_Unidentifield_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-188983_Unidentifield_screenshot2.png",
+      "test/real/IKSWW-188983_Unidentifield_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-188983_Unidentifield_screenshot3.png",
+      "test/real/IKSWW-188983_Unidentifield_screenshot3.png"
+    ],
+    [
+      "train/real/IKSWW-189025_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-189025_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-189817_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-189817_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-192724_unfold_portrait1.png",
+      "val/real/IKSWW-192724_unfold_portrait1.png"
+    ],
+    [
+      "train/real/IKSWW-195269_tent_screenshot1.png",
+      "test/real/IKSWW-195269_tent_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-195269_tent_screenshot2.png",
+      "test/real/IKSWW-195269_tent_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-195763_Unidentifield_screenshot1.png",
+      "test/real/IKSWW-195763_Unidentifield_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-195763_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-195763_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-198747_fold_landscape_screenshot1.png",
+      "test/real/IKSWW-198747_fold_landscape_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-198747_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-198747_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-203178_tent_screenshot1.png",
+      "val/real/IKSWW-203178_tent_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-203178_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-203178_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-203201_tent_screenshot1.png",
+      "val/real/IKSWW-203201_tent_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-203201_tent_screenshot2.png",
+      "val/real/IKSWW-203201_tent_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-203230_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-203230_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-204007_fold_portrait_screenshot1.png",
+      "val/real/IKSWW-204007_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-74524_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-74524_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-82022_unfold_portrait_screenshot1.jpg",
+      "val/real/IKSWW-82022_unfold_portrait_screenshot1.jpg"
+    ],
+    [
+      "train/real/IKSWW-86506_fold_portrait_screenshot1.png",
+      "val/real/IKSWW-86506_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-91801_fold_portrait_screenshot1.png",
+      "val/real/IKSWW-91801_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-91801_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-91801_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-92413_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-92413_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-92545_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-92545_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-92775_fold_portrait_screenshot1.png",
+      "val/real/IKSWW-92775_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-92870_unfold_landscape_screenshot1.png",
+      "test/real/IKSWW-92870_unfold_landscape_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-93352_fold_portrait_screenshot1.png",
+      "val/real/IKSWW-93352_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-93352_fold_portrait_screenshot2.png",
+      "val/real/IKSWW-93352_fold_portrait_screenshot2.png"
+    ],
+    [
+      "train/real/IKSWW-93352_unfold_portrait_screenshot1.png",
+      "val/real/IKSWW-93352_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-93366_fold_portrait_screenshot1.jpg",
+      "val/real/IKSWW-93366_fold_portrait_screenshot1.jpg"
+    ],
+    [
+      "train/real/IKSWW-93386_unfold_landscape_screenshot1.png",
+      "test/real/IKSWW-93386_unfold_landscape_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-93439_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-93439_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train/real/IKSWW-93439_unfold_portrait_screenshot1_competitor.png",
+      "test/real/IKSWW-93439_unfold_portrait_screenshot1_competitor.png"
+    ],
+    [
+      "train/real/IKSWW-93466_unfold_landscape_screenshot1.png",
+      "val/real/IKSWW-93466_unfold_landscape_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-100476_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-100476_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-100896_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-100896_fold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-105427_laptop_screenshot1.png",
+      "test/real/IKSWW-105427_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-107875_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-107875_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-108625_tent_screenshot1.png",
+      "test/real/IKSWW-108625_tent_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-112602_laptop_screenshot1.png",
+      "test/real/IKSWW-112602_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-115907_laptop_screenshot1.png",
+      "test/real/IKSWW-115907_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-118636_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-118636_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-119126_laptop_screenshot1.png",
+      "test/real/IKSWW-119126_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-119219_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-119219_fold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-119225_laptop_screenshot1.png",
+      "val/real/IKSWW-119243_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-121856_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-121856_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-121978_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-121978_fold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-122006_laptop_screenshot1.png",
+      "test/real/IKSWW-122006_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-123740_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-123740_fold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-130820_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-130820_fold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-131930_laptop_screenshot1.png",
+      "test/real/IKSWW-131930_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-136548_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-136548_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-137291_desktop_screenshot1.png",
+      "test/real/IKSWW-137291_desktop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-137550_unidentified_screenshot1.png",
+      "test/real/IKSWW-137550_unidentified_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-140194_unfold_landscape_screenshot1.png",
+      "test/real/IKSWW-140194_unfold_landscape_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-149281_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-149281_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-160281_laptop_screenshot1.png",
+      "test/real/IKSWW-160281_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-161391_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-161391_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-167278_tent_screenshot1.png",
+      "test/real/IKSWW-167278_tent_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-168696_laptop_screenshot1.png",
+      "test/real/IKSWW-168696_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-169407_laptop_screenshot1.png",
+      "test/real/IKSWW-169407_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-169999_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-169999_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-170120_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-170120_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-171136_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-171136_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-171209_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-171209_fold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-171956_laptop_screenshot1.png",
+      "test/real/IKSWW-171956_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-172147_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-172147_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-173949_unfold_landscape_screeshot1.png",
+      "test/real/IKSWW-173949_unfold_landscape_screeshot1.png"
+    ],
+    [
+      "val/real/IKSWW-173965_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-173965_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-178455_laptop_screenshot1.png",
+      "test/real/IKSWW-178455_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-180225_laptop_screenshot1.png",
+      "test/real/IKSWW-180225_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-182139_laptop_screenshot1.png",
+      "test/real/IKSWW-182139_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-182148_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-182148_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-183634_laptop_screenshot1.png",
+      "test/real/IKSWW-183634_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-184664_unidentified_screenshot1.png",
+      "test/real/IKSWW-184664_unidentified_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-187310_laptop_screenshot1.png",
+      "test/real/IKSWW-187310_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-188290_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-188290_fold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-188551_laptop_screenshot1.png",
+      "test/real/IKSWW-188551_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-189858_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-189858_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-189913_unfold_landscape_screenshot1.png",
+      "test/real/IKSWW-189913_unfold_landscape_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-189933_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-189933_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-195246_tent_screenshot1.png",
+      "test/real/IKSWW-195246_tent_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-195688_laptop_screenshot1.png",
+      "test/real/IKSWW-195688_laptop_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-82002_unfold_portrati_screenshot1.png",
+      "test/real/IKSWW-82002_unfold_portrati_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-83490_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-83490_fold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-85533_fold_portrait_screenshot1.png",
+      "test/real/IKSWW-85533_fold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-88861_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-88861_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-90834_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW-90834_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW-93043_fold_portrait_screenshot.png",
+      "test/real/IKSWW-93043_fold_portrait_screenshot.png"
+    ],
+    [
+      "val/real/IKSWW-98908_unfold_landscape_screenshot1.png",
+      "test/real/IKSWW-98908_unfold_landscape_screenshot1.png"
+    ],
+    [
+      "val/real/IKSWW_181317_unfold_portrait_screenshot1.png",
+      "test/real/IKSWW_181317_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "test/real/IKSWW-146975_unfold_portrait_screenshot1 (1).png",
+      "test/real/IKSWW-146975_unfold_portrait_screenshot1.png"
+    ]
+  ],
+  "near_cross": [
+    [
+      "train:IKSWW-103396_unfold_landscape_screenshot2.png",
+      "test:IKSWW-103396_unfold_landscape_screenshot3.png"
+    ],
+    [
+      "train:IKSWW-103396_unfold_landscape_screenshot3.png",
+      "test:IKSWW-103396_unfold_landscape_screenshot2.png"
+    ],
+    [
+      "train:IKSWW-109311_fold_portrait_screenshot1.png",
+      "test:IKSWW-109311_fold_portrait_screenshot2.png"
+    ],
+    [
+      "train:IKSWW-109311_fold_portrait_screenshot2.png",
+      "test:IKSWW-109311_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train:IKSWW-109311_unfold_portrait_screenshot1.png",
+      "test:IKSWW-109311_unfold_portrait_screenshot2.png"
+    ],
+    [
+      "train:IKSWW-109311_unfold_portrait_screenshot2.png",
+      "test:IKSWW-109311_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train:IKSWW-129595_fold_portrait_screenshot1.png",
+      "test:IKSWW-129595_fold_portrait_screenshot3.png"
+    ],
+    [
+      "train:IKSWW-129595_fold_portrait_screenshot2.png",
+      "test:IKSWW-129595_fold_portrait_screenshot3.png"
+    ],
+    [
+      "train:IKSWW-129595_fold_portrait_screenshot3.png",
+      "test:IKSWW-129595_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train:IKSWW-129595_fold_portrait_screenshot3.png",
+      "test:IKSWW-129595_fold_portrait_screenshot2.png"
+    ],
+    [
+      "train:IKSWW-170927_laptop_screenshot1.png",
+      "test:IKSWW-170927_laptop_screenshot1_competitor.png"
+    ],
+    [
+      "train:IKSWW-170927_laptop_screenshot1_competitor.png",
+      "test:IKSWW-170927_laptop_screenshot1.png"
+    ],
+    [
+      "train:IKSWW-195763_unfold_portrait_screenshot1.png",
+      "test:IKSWW-172053_unfold_portrait_screenshot1_competitor_boundbox.png"
+    ],
+    [
+      "train:Screenshot_20260614_231050.png",
+      "test:IKSWW-117589_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_231859.png",
+      "val:IKSWW-189858_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_231859.png",
+      "test:IKSWW-189858_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260613_131118__black_region__v2.png",
+      "test:IKSWW-88300_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_111551__black_region__v0.png",
+      "test:IKSWW-173861_laptop_screenshot1_competitor.png"
+    ],
+    [
+      "train:Screenshot_20260614_111551__black_region__v0.png",
+      "test:IKSWW-173861_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_230816__black_region__v2.png",
+      "test:IKSWW-88300_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_231050__empty_space__v1.png",
+      "test:IKSWW-117589_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_231050__overlay__v3.png",
+      "test:IKSWW-117589_fold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_231859__overlay__v0.png",
+      "val:IKSWW-189858_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_231859__overlay__v0.png",
+      "test:IKSWW-189858_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_231859__overlay__v2.png",
+      "val:IKSWW-189858_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_231859__overlay__v2.png",
+      "test:IKSWW-189858_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_233535__black_region__v2.png",
+      "test:IKSWW-173861_laptop_screenshot1_competitor.png"
+    ],
+    [
+      "train:Screenshot_20260614_233535__black_region__v2.png",
+      "test:IKSWW-173861_unfold_portrait_screenshot1.png"
+    ],
+    [
+      "train:Screenshot_20260614_233535__disorder__v0.png",
+      "test:IKSWW-173861_laptop_screenshot1_competitor.png"
+    ],
+    [
+      "train:Screenshot_20260614_233535__disorder__v0.png",
+      "test:IKSWW-173861_unfold_portrait_screenshot1.png"
+    ]
+  ],
+  "real_leaks": {
+    "IKSWW-100355": [
+      "train",
+      "val"
+    ],
+    "IKSWW-103396": [
+      "test",
+      "train"
+    ],
+    "IKSWW-105455": [
+      "test",
+      "train"
+    ],
+    "IKSWW-106739": [
+      "test",
+      "train"
+    ],
+    "IKSWW-107535": [
+      "train",
+      "val"
+    ],
+    "IKSWW-107554": [
+      "test",
+      "train"
+    ],
+    "IKSWW-107557": [
+      "test",
+      "train"
+    ],
+    "IKSWW-107976": [
+      "test",
+      "train"
+    ],
+    "IKSWW-108731": [
+      "test",
+      "train"
+    ],
+    "IKSWW-108756": [
+      "test",
+      "train"
+    ],
+    "IKSWW-108763": [
+      "train",
+      "val"
+    ],
+    "IKSWW-109103": [
+      "test",
+      "train"
+    ],
+    "IKSWW-109311": [
+      "test",
+      "train"
+    ],
+    "IKSWW-109510": [
+      "train",
+      "val"
+    ],
+    "IKSWW-110045": [
+      "test",
+      "train"
+    ],
+    "IKSWW-110147": [
+      "test",
+      "train"
+    ],
+    "IKSWW-110665": [
+      "test",
+      "train"
+    ],
+    "IKSWW-110723": [
+      "test",
+      "train"
+    ],
+    "IKSWW-112539": [
+      "train",
+      "val"
+    ],
+    "IKSWW-113570": [
+      "test",
+      "train"
+    ],
+    "IKSWW-114424": [
+      "train",
+      "val"
+    ],
+    "IKSWW-117589": [
+      "test",
+      "train"
+    ],
+    "IKSWW-117732": [
+      "test",
+      "train"
+    ],
+    "IKSWW-117815": [
+      "train",
+      "val"
+    ],
+    "IKSWW-118639": [
+      "train",
+      "val"
+    ],
+    "IKSWW-119176": [
+      "test",
+      "train"
+    ],
+    "IKSWW-121669": [
+      "test",
+      "train"
+    ],
+    "IKSWW-125346": [
+      "test",
+      "train"
+    ],
+    "IKSWW-126946": [
+      "test",
+      "train"
+    ],
+    "IKSWW-129595": [
+      "test",
+      "train"
+    ],
+    "IKSWW-130862": [
+      "train",
+      "val"
+    ],
+    "IKSWW-132986": [
+      "train",
+      "val"
+    ],
+    "IKSWW-133376": [
+      "train",
+      "val"
+    ],
+    "IKSWW-134470": [
+      "train",
+      "val"
+    ],
+    "IKSWW-141308": [
+      "test",
+      "train"
+    ],
+    "IKSWW-142258": [
+      "test",
+      "train"
+    ],
+    "IKSWW-143211": [
+      "test",
+      "train"
+    ],
+    "IKSWW-146930": [
+      "test",
+      "train"
+    ],
+    "IKSWW-147263": [
+      "test",
+      "train"
+    ],
+    "IKSWW-149514": [
+      "train",
+      "val"
+    ],
+    "IKSWW-152719": [
+      "train",
+      "val"
+    ],
+    "IKSWW-159368": [
+      "test",
+      "train"
+    ],
+    "IKSWW-162342": [
+      "train",
+      "val"
+    ],
+    "IKSWW-162451": [
+      "train",
+      "val"
+    ],
+    "IKSWW-166379": [
+      "test",
+      "train"
+    ],
+    "IKSWW-169196": [
+      "test",
+      "train"
+    ],
+    "IKSWW-169373": [
+      "train",
+      "val"
+    ],
+    "IKSWW-169989": [
+      "train",
+      "val"
+    ],
+    "IKSWW-170104": [
+      "test",
+      "train"
+    ],
+    "IKSWW-170238": [
+      "test",
+      "train"
+    ],
+    "IKSWW-170410": [
+      "test",
+      "train"
+    ],
+    "IKSWW-170927": [
+      "test",
+      "train"
+    ],
+    "IKSWW-171066": [
+      "test",
+      "train"
+    ],
+    "IKSWW-171200": [
+      "train",
+      "val"
+    ],
+    "IKSWW-171235": [
+      "test",
+      "train"
+    ],
+    "IKSWW-171952": [
+      "test",
+      "train"
+    ],
+    "IKSWW-172029": [
+      "train",
+      "val"
+    ],
+    "IKSWW-172126": [
+      "train",
+      "val"
+    ],
+    "IKSWW-172177": [
+      "test",
+      "train"
+    ],
+    "IKSWW-173856": [
+      "test",
+      "train"
+    ],
+    "IKSWW-173861": [
+      "test",
+      "train"
+    ],
+    "IKSWW-173971": [
+      "train",
+      "val"
+    ],
+    "IKSWW-174599": [
+      "test",
+      "train"
+    ],
+    "IKSWW-178418": [
+      "train",
+      "val"
+    ],
+    "IKSWW-179423": [
+      "test",
+      "train"
+    ],
+    "IKSWW-180068": [
+      "test",
+      "train"
+    ],
+    "IKSWW-181340": [
+      "test",
+      "train"
+    ],
+    "IKSWW-181344": [
+      "train",
+      "val"
+    ],
+    "IKSWW-182788": [
+      "train",
+      "val"
+    ],
+    "IKSWW-182910": [
+      "test",
+      "train"
+    ],
+    "IKSWW-186221": [
+      "test",
+      "train"
+    ],
+    "IKSWW-188043": [
+      "test",
+      "train"
+    ],
+    "IKSWW-188050": [
+      "test",
+      "train"
+    ],
+    "IKSWW-188098": [
+      "test",
+      "train"
+    ],
+    "IKSWW-188194": [
+      "test",
+      "train"
+    ],
+    "IKSWW-188883": [
+      "train",
+      "val"
+    ],
+    "IKSWW-188888": [
+      "train",
+      "val"
+    ],
+    "IKSWW-188983": [
+      "test",
+      "train"
+    ],
+    "IKSWW-189025": [
+      "test",
+      "train"
+    ],
+    "IKSWW-189817": [
+      "train",
+      "val"
+    ],
+    "IKSWW-192724": [
+      "train",
+      "val"
+    ],
+    "IKSWW-195269": [
+      "test",
+      "train"
+    ],
+    "IKSWW-195763": [
+      "test",
+      "train"
+    ],
+    "IKSWW-198747": [
+      "test",
+      "train"
+    ],
+    "IKSWW-203178": [
+      "train",
+      "val"
+    ],
+    "IKSWW-203201": [
+      "train",
+      "val"
+    ],
+    "IKSWW-203230": [
+      "train",
+      "val"
+    ],
+    "IKSWW-204007": [
+      "train",
+      "val"
+    ],
+    "IKSWW-74524": [
+      "train",
+      "val"
+    ],
+    "IKSWW-82022": [
+      "train",
+      "val"
+    ],
+    "IKSWW-86506": [
+      "train",
+      "val"
+    ],
+    "IKSWW-91801": [
+      "train",
+      "val"
+    ],
+    "IKSWW-92413": [
+      "test",
+      "train"
+    ],
+    "IKSWW-92545": [
+      "train",
+      "val"
+    ],
+    "IKSWW-92775": [
+      "train",
+      "val"
+    ],
+    "IKSWW-92870": [
+      "test",
+      "train"
+    ],
+    "IKSWW-93352": [
+      "train",
+      "val"
+    ],
+    "IKSWW-93366": [
+      "train",
+      "val"
+    ],
+    "IKSWW-93386": [
+      "test",
+      "train"
+    ],
+    "IKSWW-93439": [
+      "test",
+      "train"
+    ],
+    "IKSWW-93466": [
+      "train",
+      "val"
+    ],
+    "IKSWW-100476": [
+      "test",
+      "val"
+    ],
+    "IKSWW-100896": [
+      "test",
+      "val"
+    ],
+    "IKSWW-105427": [
+      "test",
+      "val"
+    ],
+    "IKSWW-107875": [
+      "test",
+      "val"
+    ],
+    "IKSWW-108625": [
+      "test",
+      "val"
+    ],
+    "IKSWW-112602": [
+      "test",
+      "val"
+    ],
+    "IKSWW-115907": [
+      "test",
+      "val"
+    ],
+    "IKSWW-118636": [
+      "test",
+      "val"
+    ],
+    "IKSWW-119126": [
+      "test",
+      "val"
+    ],
+    "IKSWW-119219": [
+      "test",
+      "val"
+    ],
+    "IKSWW-121856": [
+      "test",
+      "val"
+    ],
+    "IKSWW-121978": [
+      "test",
+      "val"
+    ],
+    "IKSWW-122006": [
+      "test",
+      "val"
+    ],
+    "IKSWW-123740": [
+      "test",
+      "val"
+    ],
+    "IKSWW-130820": [
+      "test",
+      "val"
+    ],
+    "IKSWW-131930": [
+      "test",
+      "val"
+    ],
+    "IKSWW-136548": [
+      "test",
+      "val"
+    ],
+    "IKSWW-137291": [
+      "test",
+      "val"
+    ],
+    "IKSWW-137550": [
+      "test",
+      "val"
+    ],
+    "IKSWW-140194": [
+      "test",
+      "val"
+    ],
+    "IKSWW-149281": [
+      "test",
+      "val"
+    ],
+    "IKSWW-160281": [
+      "test",
+      "val"
+    ],
+    "IKSWW-161391": [
+      "test",
+      "val"
+    ],
+    "IKSWW-167278": [
+      "test",
+      "val"
+    ],
+    "IKSWW-168696": [
+      "test",
+      "val"
+    ],
+    "IKSWW-169407": [
+      "test",
+      "val"
+    ],
+    "IKSWW-169999": [
+      "test",
+      "val"
+    ],
+    "IKSWW-170120": [
+      "test",
+      "val"
+    ],
+    "IKSWW-171136": [
+      "test",
+      "val"
+    ],
+    "IKSWW-171209": [
+      "test",
+      "val"
+    ],
+    "IKSWW-171956": [
+      "test",
+      "val"
+    ],
+    "IKSWW-172147": [
+      "test",
+      "val"
+    ],
+    "IKSWW-173949": [
+      "test",
+      "val"
+    ],
+    "IKSWW-173965": [
+      "test",
+      "val"
+    ],
+    "IKSWW-178455": [
+      "test",
+      "val"
+    ],
+    "IKSWW-180225": [
+      "test",
+      "val"
+    ],
+    "IKSWW-182139": [
+      "test",
+      "val"
+    ],
+    "IKSWW-182148": [
+      "test",
+      "val"
+    ],
+    "IKSWW-183634": [
+      "test",
+      "val"
+    ],
+    "IKSWW-184664": [
+      "test",
+      "val"
+    ],
+    "IKSWW-187310": [
+      "test",
+      "val"
+    ],
+    "IKSWW-188290": [
+      "test",
+      "val"
+    ],
+    "IKSWW-188551": [
+      "test",
+      "val"
+    ],
+    "IKSWW-189858": [
+      "test",
+      "val"
+    ],
+    "IKSWW-189913": [
+      "test",
+      "val"
+    ],
+    "IKSWW-189933": [
+      "test",
+      "val"
+    ],
+    "IKSWW-195246": [
+      "test",
+      "val"
+    ],
+    "IKSWW-195688": [
+      "test",
+      "val"
+    ],
+    "IKSWW-82002": [
+      "test",
+      "val"
+    ],
+    "IKSWW-83490": [
+      "test",
+      "val"
+    ],
+    "IKSWW-85533": [
+      "test",
+      "val"
+    ],
+    "IKSWW-88861": [
+      "test",
+      "val"
+    ],
+    "IKSWW-90834": [
+      "test",
+      "val"
+    ],
+    "IKSWW-93043": [
+      "test",
+      "val"
+    ],
+    "IKSWW-98908": [
+      "test",
+      "val"
+    ],
+    "IKSWW-181317": [
+      "test",
+      "val"
+    ]
+  },
+  "cross_parent": [],
+  "unlabeled_real": [
+    "val/IKSWW-100140_laptop_screenshot1_boundBox.png",
+    "val/IKSWW-101243_unfold_portrait_screenshot1_boundBox.png",
+    "val/IKSWW-111414_unfold_portrait_screenshot1.png",
+    "val/IKSWW-117671_fold_portrait_screenshot1.png",
+    "val/IKSWW-117780_unfold_portrait_screenshot1.png",
+    "val/IKSWW-118119_unfold_portrait_screenshot1.png",
+    "val/IKSWW-119225_laptop_screenshot1.png",
+    "val/IKSWW-119243_laptop_screenshot1.png",
+    "val/IKSWW-123793_unfold_portrait_screenshot1.png",
+    "val/IKSWW-124265_unfold_portrait_screenshot1.png",
+    "val/IKSWW-125191_unfold_portrait_screenshot1.png",
+    "val/IKSWW-128159_unfold_portrait_screenshot1.png",
+    "val/IKSWW-130864_unfold_portrait_screenshot1.png",
+    "val/IKSWW-132740_unfold_portrait_screenshot1.png",
+    "val/IKSWW-133315_unfold_portrait_screenshot1.png",
+    "val/IKSWW-143159_unfold_portrait_screenshot1.png",
+    "val/IKSWW-144790_unfold_portrait_screenshot1.png",
+    "val/IKSWW-149307_laptop_screenshot1.png",
+    "val/IKSWW-151783_unfold_portrait_screenshot1.png",
+    "val/IKSWW-86486_unfold_portrait_screenshot1.png",
+    "val/IKSWW-91075_unfold_portrait_screenshot1_boundBox.png",
+    "val/IKSWW-91783_fold_portrait_screenshot1.png",
+    "val/IKSWW-91783_unfold_portrait_screenshot1.png",
+    "test/IKSWW-100309_unfold_portrait_screenshot1_boundbox.png",
+    "test/IKSWW-100309_unfold_portrait_screenshot2_boundbox.png",
+    "test/IKSWW-100309_unfold_portrait_screenshot3_boundbox.png",
+    "test/IKSWW-108689_fold_portrait_screenshot1.png",
+    "test/IKSWW-110031_unfold_portrait_screenshot1.png",
+    "test/IKSWW-119431_unfold_portrait_screenshot1.png",
+    "test/IKSWW-124312_fold_portrait_screenshot1.png",
+    "test/IKSWW-124327_unfold_portrait_screenshot1.png",
+    "test/IKSWW-125381_unfold_portrait_screenshot1.png",
+    "test/IKSWW-125398_laptop_screenshot1.png",
+    "test/IKSWW-129849_laptop_screenshot1.png",
+    "test/IKSWW-130910_laptop_screenshot1.png",
+    "test/IKSWW-133314_unfold_portrait_screenshot1.png",
+    "test/IKSWW-133351_unfold_portrait_screenshot1.png",
+    "test/IKSWW-133387_unfold_portrait_screenshot1.png",
+    "test/IKSWW-142076_unfold_portrait_screenshot1.png",
+    "test/IKSWW-143913_laptop_screenshot1.png",
+    "test/IKSWW-148414_laptop_screenshot1.png",
+    "test/IKSWW-151755_unfold_portrait_screenshot1_boundBox.png",
+    "test/IKSWW-151755_unfold_portrait_screenshot2_boundBox.png.png",
+    "test/IKSWW-153186_unfold_portrait_screenshot1.png",
+    "test/IKSWW-155321_all_screenshot1.png",
+    "test/IKSWW-156918_laptop_screenshot1.png",
+    "test/IKSWW-172053_fold_landscape_screenshot1_boundbox.png",
+    "test/IKSWW-172053_unfold_portrait_screenshot1_boundbox.png",
+    "test/IKSWW-172053_unfold_portrait_screenshot1_competitor_boundbox.png",
+    "test/IKSWW-183459_laptop_screenshot1.png",
+    "test/IKSWW-188535_laptop_screenshot1.png",
+    "test/IKSWW-189054_unfold_portrait_screenshot1_boundBox.png",
+    "test/IKSWW-203185_tent_screenshot1_boundBox.png",
+    "test/IKSWW-203185_tent_screenshot2_boundBox.png",
+    "test/IKSWW-96849_fold_portrait_screenshot1.png"
+  ],
+  "double_ext": [
+    "train/IKSWW-170410_unfold_portrait_screenshot2.png.png",
+    "test/IKSWW-100476_unfold_portrait_screenshot1_boundBox.png.png",
+    "test/IKSWW-151755_unfold_portrait_screenshot2_boundBox.png.png",
+    "test/IKSWW-170410_unfold_portrait_screenshot2.png.png"
+  ]
+}

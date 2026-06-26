@@ -36,7 +36,7 @@ import torch
 
 from siamese.config import Config
 from siamese.backbone import DinoV2Backbone, BackboneConfig
-from siamese.features import extract_processed
+from siamese.features import extract_processed, clean_rows
 from siamese.synth_features import extract_synthetic
 from siamese.train import train_head
 # NB: NAO importamos evaluate aqui — a selecao usa SO metricas de val de train_head (anti-snooping).
@@ -67,7 +67,7 @@ def _needs_extract(keys) -> bool:
     return any(k.startswith("backbone.") or k.startswith("synthetic.") for k in keys)
 
 
-def _extract_for(cfg: Config, processed: Path = Path("data/processed")) -> None:
+def _extract_for(cfg: Config, processed: Path = Path("data/processed_v3")) -> None:
     """Re-extrai embeddings da FONTE DA VERDADE (data/processed/) quando o eixo toca o backbone.
     NB: eixos SINTETICOS (n_variants etc.) exigem re-rodar export_processed.py antes — aqui so
     re-embedamos os arquivos ja' materializados em processed/."""
@@ -81,8 +81,7 @@ def _extract_for(cfg: Config, processed: Path = Path("data/processed")) -> None:
     # sonda livre de confound SO da VAL (de processed/val/real/clean). O grid NUNCA gera nem le
     # test_synth: a selecao e' so na val (anti-snooping). test_synth so e' criado no --final-test.
     if cfg.synthetic.enabled:
-        d = processed / "val" / "real" / "clean"
-        rows = [{"path": str(p.resolve())} for p in sorted(d.iterdir()) if p.suffix.lower() in _EXTS]
+        rows = clean_rows(processed, "val")
         if rows:
             extract_synthetic(None, emb / "val_synth.npz", bb,
                               n_variants=cfg.synthetic.n_variants,

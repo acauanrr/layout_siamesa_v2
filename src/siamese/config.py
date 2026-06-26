@@ -65,7 +65,7 @@ class TrainCfg:
     temperature: float = 0.1
     loss: str = "supcon"          # supcon | contrastive
     aux_weight: float = 0.3       # peso do cabecalho auxiliar de classificacao
-    multiclass: bool = True       # True: clusteriza por CATEGORIA (clean + 6 erros); aux=softmax,
+    multiclass: bool = True       # True: clusteriza por CATEGORIA (clean + 4 erros); aux=softmax,
                                   # SupCon por categoria, batches balanceados por classe.
                                   # False: detector BINARIO legado (erro/sem-erro), aux=sigmoid.
     use_real_errors: bool = True   # incluir erros REAIS no treino (alem dos sinteticos)

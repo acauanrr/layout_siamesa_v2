@@ -1,0 +1,69 @@
+# Config do dataset_indt (treino com erros 100% SINTETICOS; clean SO sintetico).
+# Difere do default.yaml em: paths de artefatos SEPARADOS (nao sobrescreve processed_v3) e
+# train.use_real_errors=false (este dataset nao tem erros reais no treino).
+# NB: val/test tem clean SINTETICO (variantes de telas de app); nao ha clean de DEVICE, entao
+# especificidade/precisao no dominio real NAO sao mensuraveis — headline = AUROC livre-de-confound
+# + recall nos erros reais (ver scripts/rebuild_dataset_indt.py).
+seed: 42
+val_frac: 0.15
+test_frac: 0.24
+
+paths:
+  input_dir: data/input
+  splits_dir: data/splits
+  emb_dir: artifacts/indt/embeddings
+  models_dir: artifacts/indt/models
+  reports_dir: artifacts/indt/reports
+
+backbone:
+  model_name: vit_small_patch14_dinov2.lvd142m
+  size: 518
+  use_patch_stats: true
+  preprocess: pad
+  batch_size: 16
+
+synthetic:
+  enabled: true
+  n_variants: 4
+  max_errors_per_image: 2
+  seed: 0
+  reflow_clean: true        # clean sintetico (reflow) e a base do gate/calibracao deste dataset
+  n_reflow_variants: 4
+  max_reflow_ops: 2
+  reflow_ops:
+    scroll_shift: 1.0
+    two_pane: 0.6
+    ar_relayout: 1.0
+    band_jitter: 1.0
+  p_reflow_pos: 0.0
+  benign_augment: true
+
+head:
+  hidden: 256
+  proj_dim: 64
+  p_drop: 0.3
+
+train:
+  epochs: 500
+  lr: 0.001
+  weight_decay: 0.0001
+  batch_size: 128
+  temperature: 0.1
+  loss: supcon
+  aux_weight: 0.3
+  multiclass: true          # clean + 4 erros (black_bars, disordered_layout, empty_space, overlay)
+  use_real_errors: false    # treino NAO tem erros reais (so sinteticos); semantica do dataset_indt
+  use_synthetic: true
+  balance_batches: true
+  early_stop_metric: val_synth_gate
+  max_oversample_per_class: 12
+  patience: 80
+
+decision:
+  k_prototypes: 3
+  objective: specificity
+  target_precision: 0.95
+  target_specificity: 0.80
+  calibrate_on: confound_free
+  stage2_method: prototype
+  coarse_taxonomy: true

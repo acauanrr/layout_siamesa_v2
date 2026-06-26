@@ -19,11 +19,7 @@ dist/
 # ============================================================
 #  Dados de entrada (NAO versionar — screenshots de apps: privacidade/IP)
 # ============================================================
-data/input/
-# manifests CSV com caminhos absolutos locais; regeneraveis
-data/splits/
-# imagens separadas por split (reais + sinteticos) p/ inspecao; regeneraveis via export_processed.py
-data/processed/
+data/*
 
 # ============================================================
 #  Artefatos PESADOS / regeneraveis (rodar os scripts os recria)

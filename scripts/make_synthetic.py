@@ -22,23 +22,14 @@ import torch
 
 from siamese.config import Config
 from siamese.backbone import DinoV2Backbone, BackboneConfig
+from siamese.features import clean_rows
 from siamese.synth_features import extract_synthetic, extract_reflow_clean
-
-_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
-
-
-def _clean_rows(processed: Path, split: str) -> list[dict]:
-    """Limpas reais de processed/<split>/real/clean/ (mesmas que entram em <split>.npz)."""
-    d = processed / split / "real" / "clean"
-    if not d.is_dir():
-        return []
-    return [{"path": str(p.resolve())} for p in sorted(d.iterdir()) if p.suffix.lower() in _EXTS]
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
-    ap.add_argument("--processed", type=Path, default=Path("data/processed"))
+    ap.add_argument("--processed", type=Path, default=Path("data/processed_v3"))
     args = ap.parse_args()
     cfg = Config.load(args.config)
 
@@ -57,7 +48,7 @@ def main() -> None:
     # sonda livre de confound (ERROS): erros injetados nas limpas held-out de val/test (mesma
     # resolucao/device). Seeds distintos por split p/ reprodutibilidade.
     for split, seed in [("val", cfg.synthetic.seed + 100), ("test", cfg.synthetic.seed + 200)]:
-        rows = _clean_rows(args.processed, split)
+        rows = clean_rows(args.processed, split)
         if not rows:
             print(f"  (pulando {split}: sem limpas em {args.processed}/{split}/real/clean)")
             continue
@@ -68,7 +59,7 @@ def main() -> None:
             seed=seed, batch_size=cfg.backbone.batch_size,
             multiclass=cfg.train.multiclass, clean_rows=rows,
         )
-        print(f"  {split}: sonda sintetica {info['n']} -> {info['out']} (de processed/{split}/real/clean)")
+        print(f"  {split}: sonda sintetica {info['n']} -> {info['out']} (de {args.processed} {split}/clean)")
 
     # REFLOW-CLEAN (variantes LIMPAS de layout legitimo). train_reflow -> entra no TREINO como
     # negativos; val_reflow/test_reflow -> sondas de FALSO-POSITIVO (o gate NAO deve acender em
@@ -77,7 +68,7 @@ def main() -> None:
         for split, seed in [("train", cfg.synthetic.seed + 300),
                             ("val", cfg.synthetic.seed + 400),
                             ("test", cfg.synthetic.seed + 500)]:
-            rows = _clean_rows(args.processed, split)
+            rows = clean_rows(args.processed, split)
             if not rows:
                 print(f"  (pulando reflow {split}: sem limpas em {args.processed}/{split}/real/clean)")
                 continue
@@ -89,7 +80,7 @@ def main() -> None:
                 benign=cfg.synthetic.benign_augment,
                 seed=seed, batch_size=cfg.backbone.batch_size,
             )
-            print(f"  {split}: reflow-clean {info['n']} -> {info['out']} (de processed/{split}/real/clean)")
+            print(f"  {split}: reflow-clean {info['n']} -> {info['out']} (de {args.processed} {split}/clean)")
     else:
         print("  (reflow_clean=false -> nao gera *_reflow.npz)")
 

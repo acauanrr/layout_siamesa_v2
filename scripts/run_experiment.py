@@ -303,7 +303,7 @@ Two distinct questions → two metrics (do not conflate):
 > threshold. *AUROC vs clean* = category-vs-clean separability (⚠️ **confounded** — each category has its
 > own resolution profile; indicative only). *precision/recall/F1* = quality of the **category assignment**
 > (Stage 2). **There is no per-class precision for the gate** (a false positive is a clean screen, not
-> attributable to a category). ⚠️ Classes with **small n** (`orientation`, `distortion`) have unstable
+> attributable to a category). ⚠️ Classes with **small n** (e.g. `disordered_layout`) have unstable
 > metrics — always read with the **support**.
 
 **Ranking (support ≥ 5 only):** best **detected** = **{best_det or '—'}** · worst
@@ -448,7 +448,7 @@ def main() -> None:
     ap.add_argument("--fresh", action="store_true",
                     help="reconstroi tudo do zero (splits/processed/embeddings/sinteticos)")
     ap.add_argument("--input", type=Path, default=Path("data/input"))
-    ap.add_argument("--processed", type=Path, default=Path("data/processed"))
+    ap.add_argument("--processed", type=Path, default=Path("data/processed_v3"))
     args = ap.parse_args()
 
     from siamese.config import Config
@@ -463,8 +463,15 @@ def main() -> None:
     print(f"\033[1m# dataset: {args.processed} | fresh={fresh}\033[0m")
     print("\033[1m" + "#" * 72 + "\033[0m")
 
+    # dataset PLANO (ex.: data/processed_v3 com labels.csv) ja vem materializado e splitado por
+    # scripts/rebuild_processed_v3.py -> os passos 1-2 (build_splits/export_processed, que montam a
+    # arvore LEGADA data/processed a partir de data/input) nao se aplicam.
+    flat_dataset = (args.processed / "labels.csv").exists()
+
     # 1. splits
-    if fresh or not _exists(splits / "train.csv", splits / "val.csv", splits / "test.csv"):
+    if flat_dataset:
+        print(f"\n[1/8 split] dataset PLANO ({args.processed}/labels.csv) — split já embutido, pulando")
+    elif fresh or not _exists(splits / "train.csv", splits / "val.csv", splits / "test.csv"):
         _run("1/8 split", ["scripts/build_splits.py", "--input", str(args.input),
                            "--out", str(splits), "--val-frac", str(cfg.val_frac),
                            "--test-frac", str(cfg.test_frac), "--seed", str(cfg.seed)])
@@ -472,7 +479,9 @@ def main() -> None:
         print("\n[1/8 split] já existe — pulando (use --fresh para refazer)")
 
     # 2. processed (fonte da verdade)
-    if fresh or not _exists(args.processed / "manifest.csv"):
+    if flat_dataset:
+        print(f"[2/8 processed] dataset PLANO já materializado em {args.processed} — pulando")
+    elif fresh or not _exists(args.processed / "manifest.csv"):
         _run("2/8 processed", ["scripts/export_processed.py", "--config", str(args.config),
                                "--out", str(args.processed)])
     else:

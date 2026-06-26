@@ -19,7 +19,7 @@ import torch
 
 from siamese.config import Config
 from siamese.backbone import DinoV2Backbone, BackboneConfig
-from siamese.features import extract_processed
+from siamese.features import extract_processed, clean_rows
 from siamese.synth_features import extract_synthetic
 from siamese.train import train_head
 from siamese.evaluate import evaluate
@@ -40,12 +40,11 @@ def run_mode(base: Config, mode: str) -> dict:
     bb = DinoV2Backbone(BackboneConfig(size=cfg.backbone.size, use_patch_stats=True,
                                        preprocess=mode, device=DEVICE))
     emb = Path(cfg.paths.emb_dir)
-    processed = Path("data/processed")
-    # reais + train_synth da FONTE DA VERDADE (data/processed/)
+    processed = Path("data/processed_v3")
+    # reais + train_synth da FONTE DA VERDADE (data/processed_v3/)
     extract_processed(processed, emb, bb, batch_size=cfg.backbone.batch_size)
     # sonda livre de confound SO da VAL (anti-snooping: nunca toca test_synth aqui)
-    d = processed / "val" / "real" / "clean"
-    rows = [{"path": str(p.resolve())} for p in sorted(d.iterdir()) if p.suffix.lower() in _EXTS]
+    rows = clean_rows(processed, "val")
     if rows:
         extract_synthetic(None, emb / "val_synth.npz", bb,
                           n_variants=cfg.synthetic.n_variants,

@@ -65,12 +65,53 @@ def read_manifest(csv_path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def scan_processed(processed_dir: Path) -> list[dict]:
-    """Varre data/processed/<split>/<fonte>/<categoria>/* (FONTE DA VERDADE) e devolve
-    registros (sem embedding). O split/fonte/categoria/label vem do CAMINHO; os metadados
-    de confound (form_factor, orientation, kind, group) vem do NOME do arquivo. Assim,
-    mover/remover/corrigir arquivos em processed/ e' honrado sem precisar de manifesto."""
+def _scan_processed_flat(processed_dir: Path) -> list[dict]:
+    """Le um dataset PLANO (<split>/<source>/*, SEM subpasta de categoria) cujos rotulos estao
+    em `labels.csv` na raiz (gerado por scripts/rebuild_processed_v3.py). split/source/category/
+    label/group vem do CSV (autoritativo); para sinteticos, applied/parent vem do NOME
+    ({parent}__{tipo}__vN.png). Devolve registros com a MESMA forma do scan legado."""
     processed_dir = Path(processed_dir)
+    rows: list[dict] = []
+    with open(processed_dir / "labels.csv", newline="") as f:
+        for r in csv.DictReader(f):
+            p = processed_dir / r["path"]
+            if not p.exists():
+                continue
+            source = r["source"]
+            rec = {
+                "path": str(p.resolve()),
+                "label": int(r["label"]),
+                "category": r["category"],
+                "group": r["group"],
+                "split": r["split"],
+                "source": source,
+                "form_factor": r.get("form_factor", ""),
+                "orientation": r.get("orientation", ""),
+                "kind": r.get("kind", ""),
+                "is_competitor": str(r.get("is_competitor", "")).strip().lower() == "true",
+                "has_boundbox": str(r.get("has_boundbox", "")).strip().lower() == "true",
+            }
+            if source == "synthetic":
+                parts = p.stem.split("__")
+                rec["applied"] = parts[1] if len(parts) >= 2 else ""
+                rec["parent"] = parts[0] if parts else ""
+                rec["kind"] = "synthetic"
+            rows.append(rec)
+    return rows
+
+
+def scan_processed(processed_dir: Path) -> list[dict]:
+    """Varre o dataset (FONTE DA VERDADE) e devolve registros (sem embedding).
+
+    Detecta o layout automaticamente:
+      - PLANO (ex.: data/processed_v3): existe `labels.csv` na raiz -> rotulos vem do CSV
+        (<split>/<source>/*, sem subpasta de categoria). Ver _scan_processed_flat.
+      - LEGADO categorizado: <split>/<fonte>/<categoria>/* -> split/fonte/categoria/label do
+        CAMINHO e metadados do NOME do arquivo.
+    Em ambos, mover/remover/corrigir arquivos e' honrado sem manifesto externo de split."""
+    processed_dir = Path(processed_dir)
+    if (processed_dir / "labels.csv").exists():
+        return _scan_processed_flat(processed_dir)
     rows: list[dict] = []
     for split in _SPLITS:
         for source in _SOURCES:
@@ -112,6 +153,30 @@ def scan_processed(processed_dir: Path) -> list[dict]:
         for r in clean:
             r["group"] = gmap[Path(r["path"]).name]
     return rows
+
+
+def clean_rows(processed_dir: Path, split: str) -> list[dict]:
+    """Telas LIMPAS reais (label 0 / category 'clean') de um split — usadas para gerar as
+    sondas sinteticas livres de confound (val/test) e reflow. Suporta os dois layouts:
+      - PLANO: filtra labels.csv (source=real, category=clean, split=<split>);
+      - LEGADO: lista <split>/real/clean/.
+    Devolve [{'path': <abs>}], na ordem do nome (deterministico)."""
+    processed_dir = Path(processed_dir)
+    if (processed_dir / "labels.csv").exists():
+        out = []
+        with open(processed_dir / "labels.csv", newline="") as f:
+            for r in csv.DictReader(f):
+                if (r["split"] == split and r["source"] == "real"
+                        and r["category"] == "clean"):
+                    p = processed_dir / r["path"]
+                    if p.exists():
+                        out.append({"path": str(p.resolve())})
+        return sorted(out, key=lambda d: d["path"])
+    d = processed_dir / split / "real" / "clean"
+    if not d.is_dir():
+        return []
+    return [{"path": str(p.resolve())} for p in sorted(d.iterdir())
+            if p.suffix.lower() in _EXTS]
 
 
 def extract_rows(

@@ -21,6 +21,8 @@ from siamese.protocol import allow_test_access
 
 
 def _fmt(d):
+    if not isinstance(d, dict) or "auroc" not in d:
+        return str(d)
     return f"AUROC={d['auroc']:.3f} AP={d['ap']:.3f}"
 
 
@@ -83,14 +85,17 @@ def main() -> None:
 
     print("\n--- 1) GLOBAL: modelo vs baselines de CONFOUND (cuidado: global e confundido) ---")
     for k, v in rep["global_vs_baselines"].items():
+        if k.startswith("_"):
+            continue
         print(f"  {k:34s} {_fmt(v)}")
 
     if "primaria_subconjunto_controlado" in rep:
         c = rep["primaria_subconjunto_controlado"]
         print(f"\n--- 2) PRIMARIA: subconjunto controlado unfold-portrait-screenshot (n={c['n']}, erro={c['n_erro']}) ---")
         print(f"  modelo_fusao     {_fmt(c['modelo_fusao'])}  IC95 AUROC={tuple(round(x,3) for x in c['ci95_fusao_auroc'])}")
-        print(f"  baseline_confound{_fmt(c['baseline_confound'])}")
-        print("  -> o modelo so tem valor se SUPERAR o baseline de confound aqui.")
+        if "baseline_confound" in c:
+            print(f"  baseline_confound{_fmt(c['baseline_confound'])}")
+            print("  -> o modelo so tem valor se SUPERAR o baseline de confound aqui.")
 
     s = rep["sintetico_livre_de_confound"]
     print(f"\n--- 3) SINTETICO livre de confound (clean={s['n_clean']} vs synth={s['n_synth']}) ---")
@@ -110,7 +115,8 @@ def main() -> None:
     if "auroc_modelo_predizendo_resolucao" in f:
         print(f"  modelo prediz RESOLUCAO: AUROC={f['auroc_modelo_predizendo_resolucao']:.3f} | "
               f"prediz ERRO: AUROC={f['auroc_modelo_predizendo_erro']:.3f}")
-    print(f"  label-shuffle no estrato (deveria ~0.5): AUROC={f['auroc_label_shuffle_no_estrato']:.3f}")
+    if "auroc_label_shuffle_no_estrato" in f:
+        print(f"  label-shuffle no estrato (deveria ~0.5): AUROC={f['auroc_label_shuffle_no_estrato']:.3f}")
 
     print(f"\n--- 6) LIMIAR por precisao-alvo (fixado na VAL, medido em {ho}) ---")
     for k, v in rep["limiar_por_precisao"].items():

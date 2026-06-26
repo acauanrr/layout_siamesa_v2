@@ -1,0 +1,92 @@
+% Tabela consolidada de resultados: processed_v3 vs dataset_indt
+% Detector siamese de erros de layout (cabeca sobre DINOv2 ViT-S/14 congelado).
+% Numeros: artifacts/reports/EXPERIMENT_RESULTS.json (processed_v3) e
+%          artifacts/indt/reports/EXPERIMENT_RESULTS.json (dataset_indt).
+% Pacotes necessarios no preambulo:
+%   \usepackage{booktabs}
+%   \usepackage{threeparttable}
+%   \usepackage{multirow}   % (opcional)
+
+% ============================ TABELA I (principal) ============================
+\begin{table*}[t]
+\centering
+\caption{Consolidated comparison of the two evaluation datasets for the layout-error
+detector (siamese head over a frozen DINOv2 ViT-S/14). Held-out (test) split, threshold
+calibrated on validation. \textbf{Bold} marks the better value \emph{only} among rows that
+are cross-dataset comparable.}
+\label{tab:dataset-comparison}
+\begin{threeparttable}
+\begin{tabular}{l l c c}
+\toprule
+\textbf{Group} & \textbf{Metric} & \textbf{\texttt{processed\_v3}} & \textbf{\texttt{dataset\_indt}} \\
+\midrule
+\multirow{3}{*}{\textit{Protocol}}
+ & Eval.\ clean source            & real (same device) & synthetic (app, reflow)\tnote{a} \\
+ & Test images (clean / error)    & 108 (41 / 67)      & 184 (24 / 160) \\
+ & Resolution-only baseline AUROC & 1.000\tnote{b}     & 0.497 \\
+\midrule
+\multicolumn{4}{l}{\textit{Confound-free detection} -- errors injected into clean, same resolution (\textbf{primary, comparable})} \\
+ & AUROC & \textbf{0.721} & 0.671 \\
+ & AP    & \textbf{0.903} & \textbf{0.903} \\
+\midrule
+\multicolumn{4}{l}{\textit{Error categorisation} -- Stage~2, prototype decider} \\
+ & Coarse macro-F1 (2 super-cls.) [95\% CI] & \textbf{0.626} [0.51, 0.74] & 0.488 [0.40, 0.58] \\
+ & Fine macro-F1 (4 classes)                & \textbf{0.336}             & 0.303 \\
+\midrule
+\multicolumn{4}{l}{\textit{Operating point and confound diagnostics} -- \textbf{not cross-dataset comparable}\tnote{c}} \\
+ & Accuracy                          & 0.583 & 0.391 \\
+ & Recall (error)                    & 0.582 & 0.300 \\
+ & Specificity                       & 0.585 & 1.000\tnote{d} \\
+ & Global gate AUROC (fusion)        & 0.596 & 0.774 \\
+ & Falsifiability: error / resolution& 0.596 / 0.596\tnote{e} & 0.774 / 0.290 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flush]
+\footnotesize
+\item[a] \texttt{dataset\_indt} has \emph{no} real device clean screens; the clean class is
+synthetic (legitimate-reflow/benign variants of held-out app screens). App parents are
+partitioned per app into disjoint train/val/test sets to avoid resubstitution.
+\item[b] In \texttt{processed\_v3} every real clean screen shares one resolution
+(2076$\times$2152), so a trivial ``resolution $\neq$ canonical $\Rightarrow$ error'' rule
+already reaches AUROC~1.0; the global gate metrics are therefore confound-dominated.
+\item[c] These rows depend on the clean-negative \emph{domain}, which differs between datasets
+(real same-device vs.\ synthetic app), so they must not be compared head-to-head.
+\item[d] Computed on 24 \emph{synthetic} clean screens (app domain), not on real device clean;
+it does not certify a zero real-world false-alarm rate. The low recall (0.300) reflects the
+synthetic$\rightarrow$real transfer gap.
+\item[e] AUROC of the model score predicting \emph{error} vs.\ predicting the resolution
+confound; a near-zero gap (\texttt{processed\_v3}) means the score tracks resolution as much as
+error. The large gap in \texttt{dataset\_indt} is partly an artefact of the synthetic clean
+removing the resolution split (see note~b).
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+% ============================ TABELA II (por classe) ============================
+\begin{table}[t]
+\centering
+\caption{Per-class results on the held-out split: Stage~1 detection (AUROC vs.\ clean) and
+Stage~2 categorisation (macro-F1). \textbf{Bold} = better per row.}
+\label{tab:per-class-comparison}
+\begin{threeparttable}
+\begin{tabular}{l c c c c}
+\toprule
+ & \multicolumn{2}{c}{\textbf{Detection AUROC}\tnote{a}} & \multicolumn{2}{c}{\textbf{Class.\ F1}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+\textbf{Class} & \texttt{proc.\_v3} & \texttt{indt} & \texttt{proc.\_v3} & \texttt{indt} \\
+\midrule
+\texttt{black\_bars}        & 0.728 & \textbf{0.869} & \textbf{0.611} & 0.563 \\
+\texttt{disordered\_layout} & 0.627 & \textbf{0.756} & 0.000          & \textbf{0.227} \\
+\texttt{empty\_space}       & 0.517 & \textbf{0.696} & 0.222          & \textbf{0.327} \\
+\texttt{overlay}            & 0.531 & \textbf{0.742} & \textbf{0.510} & 0.095 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flush]
+\footnotesize
+\item[a] Detection AUROC is category-vs-clean and is \emph{confounded} (each class has its own
+resolution profile, and the clean negative differs in domain between datasets); read it as
+indicative, not as a head-to-head ranking. \texttt{black\_bars} is the strongest class on both
+datasets; \texttt{overlay} the weakest to classify.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

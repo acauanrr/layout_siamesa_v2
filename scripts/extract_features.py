@@ -28,8 +28,9 @@ from siamese.features import extract_processed
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--processed", type=Path, default=Path("data/processed"),
-                    help="dataset canonico (fonte da verdade) — saida de export_processed.py")
+    ap.add_argument("--processed", type=Path, default=Path("data/processed_v3"),
+                    help="dataset canonico (fonte da verdade): plano com labels.csv "
+                         "(processed_v3) ou arvore legada categorizada")
     ap.add_argument("--out", type=Path, default=Path("artifacts/embeddings"))
     ap.add_argument("--size", type=int, default=518)
     ap.add_argument("--use-patch-stats", action="store_true",
@@ -51,7 +52,7 @@ def main() -> None:
                                 batch_size=args.batch_size, num_workers=args.num_workers)
     for k, n in summary.items():
         print(f"  {k:18s} {n:4d} imagens")
-    print(f"Embeddings cacheados a partir de data/processed/ em {time.time()-t0:.1f}s "
+    print(f"Embeddings cacheados a partir de {args.processed}/ em {time.time()-t0:.1f}s "
           f"(fonte da verdade — honra correcoes manuais).")
 
 

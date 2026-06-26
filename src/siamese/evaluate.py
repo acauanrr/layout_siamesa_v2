@@ -242,18 +242,23 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
         aspect = (res[:, 0] / np.maximum(res[:, 1], 1)).reshape(-1, 1)
         is_photo = (z["kind"] == "photo").astype(float).reshape(-1, 1)
         return np.concatenate([res, aspect, is_photo], axis=1)
-    sc = StandardScaler()
-    lr_conf = LogisticRegression(max_iter=2000).fit(sc.fit_transform(numeric_confound(tr)), tr["label"])
-    s_conf = lr_conf.predict_proba(sc.transform(numeric_confound(ho)))[:, 1]
-    glob["baseline_confound_resaspect_photo"] = auroc_ap(ho["label"], s_conf)
-    # baseline resolucao trivial
     res_ho = _resolutions(ho["path"])
+    # baseline resolucao trivial (so usa o held-out)
     s_res = (~((res_ho[:, 0] == CLEAN_RES[0]) & (res_ho[:, 1] == CLEAN_RES[1]))).astype(float)
     glob["baseline_resolucao_trivial"] = auroc_ap(ho["label"], s_res)
-    # baseline LogReg sobre DINOv2 cru (CLS)
-    lr_raw = LogisticRegression(max_iter=2000).fit(normalize(tr["emb"]), tr["label"])
-    s_raw = lr_raw.predict_proba(normalize(ho["emb"]))[:, 1]
-    glob["baseline_logreg_dinov2_cru"] = auroc_ap(ho["label"], s_raw)
+    # baselines TREINADOS no train real exigem 2 classes. No dataset_indt o train real e' so clean
+    # (os erros de treino sao SINTETICOS) -> omitidos (seriam degenerados/enganosos).
+    train_2class = len(np.unique(tr["label"])) >= 2
+    s_conf = None
+    if train_2class:
+        sc = StandardScaler()
+        lr_conf = LogisticRegression(max_iter=2000).fit(sc.fit_transform(numeric_confound(tr)), tr["label"])
+        s_conf = lr_conf.predict_proba(sc.transform(numeric_confound(ho)))[:, 1]
+        glob["baseline_confound_resaspect_photo"] = auroc_ap(ho["label"], s_conf)
+        lr_raw = LogisticRegression(max_iter=2000).fit(normalize(tr["emb"]), tr["label"])
+        s_raw = lr_raw.predict_proba(normalize(ho["emb"]))[:, 1]
+        glob["baseline_logreg_dinov2_cru"] = auroc_ap(ho["label"], s_raw)
+    # (train real so-clean, ex.: dataset_indt -> baselines LR treinados no train sao omitidos)
     # baseline one-class kNN sobre DINOv2 cru (so imagens limpas de treino)
     nn = NearestNeighbors(n_neighbors=5, metric="cosine").fit(normalize(tr["emb"][tr["label"] == 0]))
     s_knn = nn.kneighbors(normalize(ho["emb"]))[0].mean(axis=1)
@@ -274,13 +279,15 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
         return clean | ctrl_err
     m = controlled_mask(ho)
     if m.sum() > 0 and len(np.unique(ho["label"][m])) == 2:
-        report["primaria_subconjunto_controlado"] = {
+        ctrl = {
             "n": int(m.sum()), "n_erro": int(ho["label"][m].sum()),
             "modelo_fusao": auroc_ap(ho["label"][m], fused_ho[m]),
             "modelo_proto": auroc_ap(ho["label"][m], sp_ho[m]),
-            "baseline_confound": auroc_ap(ho["label"][m], s_conf[m]),
             "ci95_fusao_auroc": grouped_bootstrap_ci(roc_auc_score, ho["label"][m], fused_ho[m], ho["group"][m]),
         }
+        if s_conf is not None:
+            ctrl["baseline_confound"] = auroc_ap(ho["label"][m], s_conf[m])
+        report["primaria_subconjunto_controlado"] = ctrl
 
     # ---- 3) deteccao SINTETICA livre de confound (clean-holdout vs synth-holdout) ----
     # Metrica DEV honesta: prototipos vem do TRAIN, entao mesmo com ho=val nao ha resubstituicao
@@ -335,16 +342,17 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
         falsi["auroc_modelo_predizendo_erro"] = glob["modelo_fusao"]["auroc"]
         falsi["interpretacao"] = ("Se os dois AUROC sao parecidos, o modelo rastreia resolucao, "
                                   "nao erro. Diferenca grande favorece deteccao de conteudo.")
-    # (b) label-shuffle dentro do estrato de resolucao -> AUROC deve cair a ~0.5
-    rng = np.random.default_rng(cfg.seed)
-    y_shuf = tr["label"].copy()
-    for val_res in [1, 0]:
-        idx = np.where(((_resolutions(tr["path"])[:, 0] == CLEAN_RES[0]) &
-                        (_resolutions(tr["path"])[:, 1] == CLEAN_RES[1])).astype(int) == val_res)[0]
-        y_shuf[idx] = rng.permutation(y_shuf[idx])
-    lr_sh = LogisticRegression(max_iter=2000).fit(normalize(tr["emb"]), y_shuf)
-    s_sh = lr_sh.predict_proba(normalize(ho["emb"]))[:, 1]
-    falsi["auroc_label_shuffle_no_estrato"] = float(roc_auc_score(ho["label"], s_sh))
+    # (b) label-shuffle dentro do estrato de resolucao -> AUROC deve cair a ~0.5 (so com train 2-classes)
+    if train_2class:
+        rng = np.random.default_rng(cfg.seed)
+        y_shuf = tr["label"].copy()
+        for val_res in [1, 0]:
+            idx = np.where(((_resolutions(tr["path"])[:, 0] == CLEAN_RES[0]) &
+                            (_resolutions(tr["path"])[:, 1] == CLEAN_RES[1])).astype(int) == val_res)[0]
+            y_shuf[idx] = rng.permutation(y_shuf[idx])
+        lr_sh = LogisticRegression(max_iter=2000).fit(normalize(tr["emb"]), y_shuf)
+        s_sh = lr_sh.predict_proba(normalize(ho["emb"]))[:, 1]
+        falsi["auroc_label_shuffle_no_estrato"] = float(roc_auc_score(ho["label"], s_sh))
     report["falseabilidade"] = falsi
 
     # ---- 6) limiar por precisao-alvo (fixado no conjunto de CALIBRACAO) + metricas no held-out ----
@@ -516,11 +524,21 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
     #   - ORACULO (todos os erros) e CONDICIONAL ao gate E1 (so erros que o E1 sinalizou = PRODUCAO).
     cat_protos = cat_proto_ids = None
     clean_id = CATEGORY_TO_ID[CLEAN_CATEGORY]
-    if multiclass and (_cat_ids(tr) != clean_id).sum() > 0:   # guarda: precisa de erros no treino
-        cat_tr = _cat_ids(tr)
-        err_tr = cat_tr != clean_id
+    # Erros de TREINO p/ os protótipos de categoria: REAIS (tr) se houver; senão SINTETICOS
+    # (train_synth.npz). No dataset_indt o train real e' so clean -> usa os sinteticos.
+    cat_tr = _cat_ids(tr)
+    if (cat_tr != clean_id).sum() > 0:
+        _m = cat_tr != clean_id
+        z_err_tr, cat_err_tr = z_tr[_m], cat_tr[_m]
+    elif (emb_dir / "train_synth.npz").exists():
+        _ts = load_embeddings(emb_dir / "train_synth.npz")
+        z_err_tr, _ = model_embeddings(model, _ts["emb"], device)
+        cat_err_tr = _cat_ids(_ts)
+    else:
+        z_err_tr = cat_err_tr = None
+    if multiclass and z_err_tr is not None and len(z_err_tr) > 0:
         cat_protos, cat_proto_ids = fit_category_prototypes(
-            z_tr[err_tr], cat_tr[err_tr], k=cfg.decision.k_prototypes, seed=cfg.seed)
+            z_err_tr, cat_err_tr, k=cfg.decision.k_prototypes, seed=cfg.seed)
         err_class_ids = sorted({int(c) for c in cat_proto_ids}) if cat_protos is not None else []
         canonical = cfg.decision.stage2_method
         _to_coarse = lambda arr: np.array([coarse_id(ID_TO_CATEGORY[int(i)]) for i in arr], dtype=int)

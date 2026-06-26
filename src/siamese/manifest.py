@@ -25,16 +25,16 @@ LABEL_NO_ERROR = 0
 LABEL_ERROR = 1
 
 # --- Taxonomia multi-cluster -------------------------------------------------
-# As 6 categorias de erro espelham as subpastas reais de data/input/errors_dataset/
-# (nomes com ESPACO -> slug estavel). 'clean' e a classe sem-erro (no_erros/).
+# As 4 categorias de erro do dataset atual (processed_v3). 'clean' e a classe sem-erro.
+# (As classes 'distortion' e 'orientation' foram REMOVIDAS em jun/2026: nao existem no
+# processed_v3, que tem so estas 4 + clean. Ver memoria dataset-processed-v3-flat-standard.)
+# Os nomes com ESPACO mapeiam as subpastas legadas de data/input/errors_dataset/.
 # A ordem de CATEGORIES define o id numerico usado no treino/decisao multi-classe:
-#   0 = clean, 1..6 = categorias de erro (em ordem alfabetica do slug, deterministico).
+#   0 = clean, 1..4 = categorias de erro (em ordem alfabetica do slug, deterministico).
 ERROR_DIR_TO_SLUG = {
     "black bars": "black_bars",
     "disordered layout": "disordered_layout",
-    "distortion": "distortion",
     "empty space": "empty_space",
-    "orientation": "orientation",
     "overlay": "overlay",
 }
 CLEAN_CATEGORY = "clean"
@@ -45,22 +45,19 @@ CLEAN_ID = CATEGORY_TO_ID[CLEAN_CATEGORY]   # 0
 ABSTAIN_ID = -1                              # sentinela de abstencao (categoria fora do escopo)
 
 
-# --- Taxonomia GROSSA (3 super-classes) -------------------------------------
-# DESIGN §10.5: as 6 categorias finas tem teto de separabilidade ~F1 0.2 nas features DINOv2
-# (semanticamente sobrepostas + rotulo single-label p/ erros que coocorrem + classes raras
-# orientation=7/distortion=13). A taxonomia grossa agrupa por NAO-COLISAO (o principio do
-# legado) e tem PODER ESTATISTICO -> e' a avaliacao PRIMARIA do Estagio 2; a fina vira
-# secundaria/exploratoria. Mapa REVERSIVEL (fino -> grosso):
+# --- Taxonomia GROSSA (2 super-classes de erro + clean) ---------------------
+# Agrupa as 4 categorias finas por NAO-COLISAO (principio do legado): as features visuais
+# congeladas (DINOv2) tem teto de separabilidade baixo entre categorias semanticamente
+# sobrepostas, entao a taxonomia grossa (com mais suporte por classe) tem PODER ESTATISTICO
+# e e' avaliada junto da fina. Mapa REVERSIVEL (fino -> grosso):
 #   dead_region      : conteudo morto/ausente (regiao preta/vazia)
 #   displaced_content: elementos deslocados/sobrepostos
-#   geometry         : geometria global errada (distorcao/orientacao) — junta as 2 raras
+# (A super-classe 'geometry' foi removida com distortion/orientation.)
 FINE_TO_COARSE = {
     "black_bars": "dead_region",
     "empty_space": "dead_region",
     "overlay": "displaced_content",
     "disordered_layout": "displaced_content",
-    "distortion": "geometry",
-    "orientation": "geometry",
 }
 COARSE_CATEGORIES = [CLEAN_CATEGORY] + sorted(set(FINE_TO_COARSE.values()))
 COARSE_TO_ID = {c: i for i, c in enumerate(COARSE_CATEGORIES)}
@@ -345,8 +342,8 @@ def grouped_stratified_split(
       (grupo atomico) -> sem vazamento. Verificado em build_splits.py.
     - Estratificacao (`stratify`):
         "category" (PADRAO, multi-cluster): estratifica pela CATEGORIA do grupo, para
-            que cada categoria (inclusive raras como orientation/distortion) apareca em
-            train/val/test. A chave do grupo e a categoria MAJORITARIA entre suas
+            que cada categoria apareca em train/val/test (clean + 4 erros).
+            A chave do grupo e a categoria MAJORITARIA entre suas
             imagens (resolve os poucos tickets que cruzam categorias sem vazar).
         "label" (legado binario): estratifica por rotulo 0/1 (comportamento antigo).
       No modo legado `with_errors` a categoria e '' para todo erro, entao "category"

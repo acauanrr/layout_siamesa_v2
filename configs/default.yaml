@@ -59,7 +59,8 @@ train:
   loss: supcon             # supcon | contrastive
   aux_weight: 0.3          # RE-VALIDADO honestamente (jun/2026): grid na val -> 0.3 no topo (era
                            # 0.6, LEGADO). Menos peso no aux = cluster limpo menos overfitado.
-  multiclass: true         # true = clusteriza por CATEGORIA (clean + 6 erros de errors_dataset/);
+  multiclass: true         # true = clusteriza por CATEGORIA (clean + 4 erros do processed_v3:
+                           # black_bars, disordered_layout, empty_space, overlay);
                            # aux=softmax, SupCon por categoria, batches balanceados por classe,
                            # decisao em 2 estagios (gate binario + categoria por prototipo).
                            # false = detector BINARIO legado (erro/sem-erro).
@@ -86,4 +87,5 @@ decision:
   # val_synth(erro) + val_reflow(limpo) -> limiar ESTAVEL (corrige FPR alto). "real_val" = legado.
   calibrate_on: confound_free
   stage2_method: prototype   # decisor canonico do Estagio 2 (categoria): prototype | aux
-  coarse_taxonomy: true      # avalia E2 na taxonomia GROSSA (3 super-classes) como primaria
+  coarse_taxonomy: true      # avalia E2 na taxonomia GROSSA (2 super-classes de erro + clean:
+                             # dead_region={black_bars,empty_space}, displaced_content={overlay,disordered_layout})

@@ -1,13 +1,13 @@
 # Experiment results — UI layout-error detector (siamese head · frozen DINOv2)
 
-> **Config:** `default.yaml` · **Dataset:** `data/processed/` (single source of truth, corrected) ·
-> **Held-out:** 108 images (41 clean + 67 errors), test **locked** and evaluated **once**.
+> **Config:** `dataset_indt.yaml` · **Dataset:** `data/processed/` (single source of truth, corrected) ·
+> **Held-out:** 184 images (24 clean + 160 errors), test **locked** and evaluated **once**.
 > Selection/calibration **on validation only** (anti-leakage protocol).
 
 ## ⚠️ How to read these numbers (READ BEFORE COMPARING)
 
 This dataset has a **resolution confound**: **every** clean screen is 2076×2152 (a single device).
-The trivial rule *"resolution ≠ 2076×2152 ⇒ error"* alone gives **AUROC 1.000** — without
+The trivial rule *"resolution ≠ 2076×2152 ⇒ error"* alone gives **AUROC 0.497** — without
 looking at the layout. **So the GLOBAL metric is ~98% confound.** For a **fair** comparison with other
 models:
 - **DO NOT** lead with global accuracy/AUROC (a naive model "wins" by exploiting the device).
@@ -20,49 +20,49 @@ models:
 
 | Metric | Value | 95% CI |
 |---|---|---|
-| **Accuracy** | **0.583** | [0.49–0.67] |
-| **Precision** | **0.696** | [0.46–0.95] |
-| **Recall (sensitivity)** | **0.582** | — |
-| **F1-score** | **0.634** | [0.49–0.76] |
-| **Specificity** | **0.585** | [0.25–0.74] |
-| **Balanced accuracy** | **0.584** | — |
-| **MCC** | **0.163** | — |
-| **AUROC** (fusion / prototype) | **0.596 / 0.607** | — |
-| **AP (PR-AUC)** | **0.708** | — |
-| Brier / ECE (calibration) | 0.265 / 0.153 | — |
+| **Accuracy** | **0.391** | [0.29–0.49] |
+| **Precision** | **1.000** | [1.00–1.00] |
+| **Recall (sensitivity)** | **0.300** | — |
+| **F1-score** | **0.462** | [0.36–0.55] |
+| **Specificity** | **1.000** | [1.00–1.00] |
+| **Balanced accuracy** | **0.650** | — |
+| **MCC** | **0.230** | — |
+| **AUROC** (fusion / prototype) | **0.774 / 0.773** | — |
+| **AP (PR-AUC)** | **0.963** | — |
+| Brier / ECE (calibration) | 0.286 / 0.421 | — |
 
-Confusion matrix (gate): **TP=39 · TN=24 · FP=17 · FN=28**
+Confusion matrix (gate): **TP=48 · TN=24 · FP=0 · FN=112**
 (`artifacts/reports/confusion_matrix.png`).
 
 > **For the comparison table**, prefer **AUROC/AP** (threshold-free) and the **prototype** (cleaner
-> signal, AUROC 0.607). The fusion AUROC (0.596) is lower **on purpose**: it was
+> signal, AUROC 0.773). The fusion AUROC (0.774) is lower **on purpose**: it was
 > calibrated **not** to exploit the resolution confound.
 
 ## 2. CONFOUND-FREE metrics (the honest ones — lead with these)
 
 | Evaluation | Model (prototype) | Confound baseline | Verdict |
 |---|---|---|---|
-| **Confound-free synthetic** (errors injected into clean screens, same resolution) | **AUROC 0.721** · AP 0.903 | — | ✅ real signal |
-| **Controlled subset** (form-factor/orientation fixed) | **AUROC 0.602** [0.44–0.74] | 0.321 | ✅ beats it |
-| **Falsifiability** (predicts error vs predicts resolution) | error 0.596 | resolution 0.596 | ⚠️ tracks resolution |
+| **Confound-free synthetic** (errors injected into clean screens, same resolution) | **AUROC 0.671** · AP 0.903 | — | ✅ real signal |
+| **Controlled subset** (form-factor/orientation fixed) | **AUROC 0.700** [0.59–0.81] | — | ⚠️ does not beat |
+| **Falsifiability** (predicts error vs predicts resolution) | error 0.774 | resolution 0.290 | ✅ separates |
 
 ## 3. Confound baselines (the "cheating ceiling" — what to compare against)
 
 | Classifier | AUROC |
 |---|---|
-| Trivial resolution-only rule | 1.000 |
-| Gray-padding fraction only | 1.000 |
-| LogReg on raw DINOv2 | 0.716 |
-| **Model (prototype)** | **0.607** |
-| One-class kNN (DINOv2) | 0.644 |
+| Trivial resolution-only rule | 0.497 |
+| Gray-padding fraction only | 0.177 |
+| LogReg on raw DINOv2 | — |
+| **Model (prototype)** | **0.773** |
+| One-class kNN (DINOv2) | 0.768 |
 
 ## 4. Stage 2 — error category (only when Stage 1 = error)
 
 | Taxonomy | macro-F1 | 95% CI | note |
 |---|---|---|---|
-| **Coarse (3 super-classes)** ⭐ | **0.626** | [0.51–0.74] | primary (statistical power) |
-| Coarse, gate-conditioned (production) | 0.643 | — | only errors flagged by Stage 1 |
-| Fine (6 classes) | 0.336 | — | secondary/exploratory (structural ceiling) |
+| **Coarse (3 super-classes)** ⭐ | **0.488** | [0.40–0.58] | primary (statistical power) |
+| Coarse, gate-conditioned (production) | 0.429 | — | only errors flagged by Stage 1 |
+| Fine (6 classes) | 0.303 | — | secondary/exploratory (structural ceiling) |
 
 > ⚠️ The coarse macro-F1 is higher because it is a **3**-class task (aggregation of the 6 fine
 > classes), **not** because the model got better; the lower CI bound is near chance (0.33).
@@ -76,10 +76,10 @@ Two distinct questions → two metrics (do not conflate):
 
 | Category | n (test) | **Detection** recall@op | **Detection** AUROC vs clean [CI95] | **Classif.** precision | **Classif.** recall | **Classif.** F1 |
 |---|---|---|---|---|---|---|
-| `black_bars` | 22 | 0.727 | 0.728 [0.59–0.88] | 0.786 | 0.500 | 0.611 |
-| `disordered_layout` | 10 | 0.500 | 0.627 [0.46–0.82] | 0.000 | 0.000 | 0.000 |
-| `empty_space` | 14 | 0.571 | 0.517 [0.33–0.72] | 0.231 | 0.214 | 0.222 |
-| `overlay` | 21 | 0.476 | 0.531 [0.37–0.69] | 0.433 | 0.619 | 0.510 |
+| `black_bars` | 50 | 0.540 | 0.869 [0.78–0.94] | 0.547 | 0.580 | 0.563 |
+| `disordered_layout` | 22 | 0.318 | 0.756 [0.59–0.89] | 0.227 | 0.227 | 0.227 |
+| `empty_space` | 36 | 0.250 | 0.696 [0.53–0.85] | 0.243 | 0.500 | 0.327 |
+| `overlay` | 52 | 0.096 | 0.742 [0.61–0.86] | 0.273 | 0.058 | 0.095 |
 
 > **How to read:** *recall@op* = fraction of that category's errors flagged as ERROR at the operating
 > threshold. *AUROC vs clean* = category-vs-clean separability (⚠️ **confounded** — each category has its
@@ -99,9 +99,9 @@ detected = **empty_space** · best **classified** = **black_bars**.
 
 ## 6. VERDICT — does the model work on this dataset?
 
-- ✅ REAL CONTENT SIGNAL: on the CONTROLLED subset (form-factor/orientation fixed) the model (prototype AUROC 0.602) BEATS the confound baseline (0.321); and on the CONFOUND-FREE synthetic it reaches AUROC 0.721 (AP 0.903). The model detects the ERROR, not just the device.
-- ⚠️ CONFOUND NOT BEATEN globally: the score predicts ERROR (0.596) about as well as RESOLUTION (0.596) (gap 0.000). The confound is ATTENUATED, not eliminated — beating it needs more diverse CLEAN screens (data).
-- ℹ️ The GLOBAL metric is confounded: the trivial resolution rule alone gives AUROC 1.000 — so the model's global accuracy must NOT be compared naively with models that exploit the confound. Lead with confound-free AUROC.
+- ⚠️ WEAK/INCONCLUSIVE content signal in the confound-free regime (controlled prototype 0.700 vs confound —; synthetic 0.671).
+- ✅ FALSIFIABILITY: predicts ERROR (0.774) better than RESOLUTION (0.290) (gap 0.484).
+- ℹ️ The GLOBAL metric is confounded: the trivial resolution rule alone gives AUROC 0.497 — so the model's global accuracy must NOT be compared naively with models that exploit the confound. Lead with confound-free AUROC.
 
 ---
 *Generated by `scripts/run_experiment.py`. Flat metrics JSON:
