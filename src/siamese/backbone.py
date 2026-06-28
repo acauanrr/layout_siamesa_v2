@@ -84,8 +84,11 @@ class DinoV2Backbone(nn.Module):
             if not self.cfg.use_patch_stats:
                 feat = self.model(x)
             else:
-                tokens = self.model.forward_features(x)        # [B,1+N,C]
-                cls, patches = tokens[:, 0], tokens[:, 1:]
+                tokens = self.model.forward_features(x)        # [B, prefix+N, C]
+                # prefix = CLS (+ registers nos modelos reg4). Pula TODOS p/ as stats de patch
+                # refletirem so os tokens espaciais (senao os 4 registers poluem mean/std).
+                n_prefix = getattr(self.model, "num_prefix_tokens", 1)
+                cls, patches = tokens[:, 0], tokens[:, n_prefix:]
                 mean, std = self._masked_stats(patches, patch_mask)
                 feat = torch.cat([cls, mean, std], dim=-1)
         return feat.float()
@@ -97,4 +100,5 @@ class DinoV2Backbone(nn.Module):
         use_amp = self.cfg.amp and self.device.type == "cuda"
         with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=use_amp):
             tokens = self.model.forward_features(x)
-        return tokens[:, 1:].float()
+        n_prefix = getattr(self.model, "num_prefix_tokens", 1)
+        return tokens[:, n_prefix:].float()

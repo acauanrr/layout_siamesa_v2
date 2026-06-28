@@ -364,4 +364,24 @@ regenerados das limpas expandidas). Pipeline: `fetch_clean_extra.py` → `merge_
 **near-square** (bucket dominante dos erros, hoje fraco no pool — fonte pública escassa; usar
 WebUI iPad 2048×2732 / scrape App Store, ou sintetizar near-square); (b) **Fase 3** (backbone
 `reg4`/large) sobre o dataset já de-confoundado.
+
+### Resultados — Fase 3 (backbone, jun/2026)
+
+Backbone congelado = teto das features. Comparados 3 (seleção na VAL livre-de-confound,
+`scripts/compare_backbones.py`) sobre `processed_v3_plus`; **vencedor = `vit_large_patch14_reg4_dinov2`**
+(registers melhoram os patch tokens usados em mean/std). Corrigido `backbone.py` p/ pular
+`num_prefix_tokens` (CLS + 4 registers) nas stats de patch. Final-test (held-out) do vencedor:
+
+| Métrica (teste) | Baseline (S, v3) | Plus (S) | **Plus + L_reg4** | Meta |
+|---|---|---|---|---|
+| **AUROC livre-de-confound** | 0.721 | 0.768 | **0.802** | > 0.80 ✅ |
+| **Gap treino→teste** (AUROC) | 0.40 | 0.24 | **0.182** | < 0.15 (quase) |
+| Gate AUROC | 0.607 | 0.636 | **0.691** | — |
+| `val_synth_gate` (seleção) | 0.81 | 0.81 | **0.857** | — |
+
+Seleção na val: L_reg4 `val_synth_gate` 0.857 / `val_cat_f1` 0.576 > B_reg4 0.847/0.382 > S
+0.811/0.453. **As duas alavancas COMPÕEM:** dados quebram o confound e sobem a base (0.72→0.77);
+o backbone reg4/large sobe o teto (0.77→**0.80**) e fecha o gap (0.24→**0.18**). Estágio-2 fina no
+teste ~estável (knn 0.40) — limitada pelo suporte por classe (`disordered_layout` n=10) e clean
+cross-domain; mais dados + **near-square** (Fase 2.b) é o que falta p/ gap<0.15.
 ```

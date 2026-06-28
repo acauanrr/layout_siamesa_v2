@@ -33,6 +33,9 @@ artifacts/models/
 artifacts/embeddings_plus/
 artifacts/models_plus/
 artifacts/reports_plus/
+# Fase 3: embeddings/modelos por backbone (compare_backbones) + relatorio do vencedor
+artifacts/bb_*/
+artifacts/reports_L_reg4/
 # 480 imagens corrompidas + pares (~330 MB; screenshots reais)
 artifacts/synthetic_images/
 # 376 overlays (~106 MB; screenshots reais)
