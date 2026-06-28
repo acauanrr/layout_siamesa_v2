@@ -5,8 +5,8 @@ Detecção de erro de **layout** em screenshots/fotos de UI de celular com uma *
 
 1. **Gate "tem erro?"** (Estágio 1) — decisão por **proximidade a protótipos do cluster "limpo"**
    fundida com uma cabeça auxiliar, no limiar calibrado.
-2. **Categoria do erro** (Estágio 2, só se houver erro) — atribui a **categoria** pelo **protótipo de
-   categoria mais próximo** no espaço aprendido (SupCon multi-classe).
+2. **Categoria do erro** (Estágio 2, só se houver erro) — atribui a **categoria** por **k-NN de
+   categoria** no espaço aprendido (SupCon multi-classe; ver [`docs/COMPARACAO_KNN_TRIPLET.md`](docs/COMPARACAO_KNN_TRIPLET.md)).
 
 **Taxonomia (5 classes):** `clean` + 4 erros — `black_bars` · `disordered_layout` · `empty_space` · `overlay`.
 
@@ -65,8 +65,8 @@ da AP = 0.80); o sinal real é o **AUROC 0.72** (acaso 0.50).</sub>
 
 | Taxonomia | Acurácia | F1-macro | Nota |
 |---|---:|---:|---|
-| **Grossa** (2 super-classes: região-morta / deslocado) | 0.63 | 0.63 [IC95 0.51–0.74] | primária |
-| Fina (4 classes) | 0.40 | 0.34 | exploratória — confiável só em `black_bars` |
+| **Grossa** (2 super-classes: região-morta / deslocado) | 0.64 | 0.64 [IC95 0.52–0.75] | primária |
+| Fina (4 classes) | 0.43 | 0.35 | exploratória — confiável só em `black_bars` |
 
 **`black_bars`** é a classe forte (melhor detectada **e** classificada); `disordered_layout`/`empty_space`
 são fracas. Métricas por classe e clusters em `artifacts/reports/processed_v3/`.
@@ -89,7 +89,7 @@ imagem ─► padding CINZA 518×518 (+máscara) ─► DINOv2 ViT-S/14 ❄ CONG
            │   ⊕ cabeça aux: P(erro) = 1 − P(clean)   ─► fusão calibrada na VAL livre de confound
            │   ─► p(erro) ─► limiar (specificity-first, alvo 0.80)
            ╘═ ESTÁGIO 2 (categoria; só se E1=erro) ══════════════════════════════════════
-               protótipo de CATEGORIA mais próximo → 4 fina / 2 grossa
+               k-NN de CATEGORIA (vizinhos de erro de treino) → 4 fina / 2 grossa
 ```
 Diagrama completo: [`docs/pipeline.mmd`](docs/pipeline.mmd) (renderiza no GitHub/VS Code).
 
@@ -179,6 +179,7 @@ justificativas em [`docs/DESIGN.md`](docs/DESIGN.md).
 | Documento | Para quê |
 |---|---|
 | [`docs/RELATORIO_FINAL_PROCESSED_V3.md`](docs/RELATORIO_FINAL_PROCESSED_V3.md) | **Resultados + veredito** (confound, vazamento, métrica recomendada) |
+| [`docs/COMPARACAO_KNN_TRIPLET.md`](docs/COMPARACAO_KNN_TRIPLET.md) | k-NN vs protótipo · Triplet vs SupCon (respostas à supervisão, com dados) |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Detalhamento técnico e justificativa de cada decisão |
 | [`docs/pipeline.mmd`](docs/pipeline.mmd) | Diagrama do pipeline (Mermaid) |
 | [`docs/AUDITORIA_PROCESSED_V3_TREINO_TESTE.md`](docs/AUDITORIA_PROCESSED_V3_TREINO_TESTE.md) | Auditoria do treino/teste |

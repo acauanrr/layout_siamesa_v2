@@ -189,14 +189,17 @@ def build_report(emb_dir: Path, rep_dir: Path, cfg_path: Path) -> dict:
     synth_ap = _g(synth, "modelo_proto", "ap")
     fa_err = _g(fals, "auroc_modelo_predizendo_erro")
     fa_res = _g(fals, "auroc_modelo_predizendo_resolucao")
+    # chave da taxonomia FINA conforme o método CANÔNICO do Estágio 2 (prototype|knn|aux)
+    _canon = _g(e2, "oraculo", "metodo_canonico", default="prototype")
+    _fk = {"prototype": "por_prototipo", "knn": "por_knn", "aux": "por_aux_head"}.get(_canon, "por_prototipo")
     e2_coarse = _g(e2, "oraculo", "grossa", "f1_macro")
     e2_coarse_ci = _g(e2, "oraculo", "grossa", "ci95_f1_macro")
-    e2_fine = _g(e2, "oraculo", "fina", "por_prototipo", "f1_macro")
+    e2_fine = _g(e2, "oraculo", "fina", _fk, "f1_macro")
     e2_cond = _g(e2, "condicional_ao_gate", "grossa", "f1_macro")
     # contagem DINAMICA de classes do Estagio 2 (deriva do dataset, nao hardcode): o Estagio 2 so
     # categoriza ERROS -> grossa = super-classes de erro (ex.: 2), fina = classes de erro (ex.: 4).
     n_coarse = len(_g(e2, "oraculo", "grossa", "classes", default=[]) or [])
-    n_fine = len(_g(e2, "oraculo", "fina", "por_prototipo", "classes", default=[]) or [])
+    n_fine = len(_g(e2, "oraculo", "fina", _fk, "classes", default=[]) or [])
     chance_fine = (1.0 / n_fine) if n_fine else 0.0
 
     # --- VEREDITO automatico (data-driven, honesto) ---
@@ -227,7 +230,7 @@ def build_report(emb_dir: Path, rep_dir: Path, cfg_path: Path) -> dict:
 
     # --- MÉTRICAS POR CLASSE DE ERRO (pedido do coordenador) ---
     det = _g(final, "deteccao_por_categoria", "por_classe", default={}) or {}
-    e2fine = _g(e2, "oraculo", "fina", "por_prototipo", default={}) or {}
+    e2fine = _g(e2, "oraculo", "fina", _fk, default={}) or {}   # método canônico (prototype|knn|aux)
     prec_c = e2fine.get("precisao_por_classe", {})
     rec_c = e2fine.get("recall_por_classe", {})
     f1_c = e2fine.get("f1_por_classe", {})

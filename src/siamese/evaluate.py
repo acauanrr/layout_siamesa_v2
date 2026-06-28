@@ -30,7 +30,7 @@ from sklearn.metrics import (roc_auc_score, average_precision_score, precision_r
                              precision_score, recall_score)
 
 from .features import load_embeddings
-from .decision import (fit_prototypes, PrototypeDecider,
+from .decision import (fit_prototypes, PrototypeDecider, KNNDecider, KNNCategoryClassifier,
                        select_threshold_for_precision, select_threshold_max_f1,
                        select_threshold_for_specificity,
                        fit_category_prototypes, assign_category)
@@ -168,9 +168,17 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
     ae_tr, ae_va, ae_ho = (_aux_err(aux_tr, multiclass), _aux_err(aux_va, multiclass),
                            _aux_err(aux_ho, multiclass))
 
-    # ESTAGIO 1 — prototipos do cluster LIMPO (so train, label 0) -> gate "tem erro?"
-    protos = fit_prototypes(z_tr[tr["label"] == 0], k=cfg.decision.k_prototypes, seed=cfg.seed)
-    decider = PrototypeDecider(protos, threshold=0.0, target_precision=cfg.decision.target_precision)
+    # ESTAGIO 1 — gate "tem erro?" sobre o cluster LIMPO (so train, label 0). Decisor conforme
+    # cfg.decision.gate_method: 'prototype' (k-means) ou 'knn' (vizinhos as limpas de treino). A
+    # fusao com a cabeca aux e a calibracao do limiar sao IDENTICAS nos dois (so muda o score sp_*).
+    gate_method = getattr(cfg.decision, "gate_method", "prototype")
+    clean_tr = tr["label"] == 0
+    if gate_method == "knn":
+        decider = KNNDecider(z_tr[clean_tr], k=cfg.decision.knn_k)
+        protos = decider.z_clean                       # referencia k-NN (salva no decision bundle)
+    else:
+        protos = fit_prototypes(z_tr[clean_tr], k=cfg.decision.k_prototypes, seed=cfg.seed)
+        decider = PrototypeDecider(protos, threshold=0.0, target_precision=cfg.decision.target_precision)
     sp_tr, sp_va, sp_ho = decider.scores(z_tr), decider.scores(z_va), decider.scores(z_ho)
 
     # ---- CALIBRACAO da fusao [score_proto, aux_err] + limiar (SEMPRE na VAL; nunca no teste) ----
@@ -224,6 +232,8 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
                     "target_precision": cfg.decision.target_precision,
                     "calibrate_on": eff_method, "calibrate_on_requested": req_method,
                     "n_calibracao": int(len(y_cal)),
+                    "gate_method": gate_method, "stage2_method": cfg.decision.stage2_method,
+                    "loss": getattr(cfg.train, "loss", "supcon"),
                     "_modo": modo, "_holdout": ho_name}
 
     # ---- 1) global: modelo vs baselines de confound ----
@@ -541,6 +551,8 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
             z_err_tr, cat_err_tr, k=cfg.decision.k_prototypes, seed=cfg.seed)
         err_class_ids = sorted({int(c) for c in cat_proto_ids}) if cat_protos is not None else []
         canonical = cfg.decision.stage2_method
+        # classificador k-NN de categoria (usado se stage2_method='knn'; e como diagnostico sempre)
+        cat_knn = KNNCategoryClassifier(z_err_tr, cat_err_tr, k=cfg.decision.knn_k)
         _to_coarse = lambda arr: np.array([coarse_id(ID_TO_CATEGORY[int(i)]) for i in arr], dtype=int)
 
         def _metrics(y_true, y_pred, id_to_name, groups):
@@ -576,14 +588,16 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
             g_e = groups_split[err] if groups_split is not None else None
             y_proto = assign_category(z_split[err], cat_protos, cat_proto_ids)
             y_aux = np.array(err_class_ids)[aux_split[err][:, err_class_ids].argmax(axis=1)]
-            canon = y_proto if canonical == "prototype" else y_aux
+            y_knn = cat_knn.predict(z_split[err])
+            canon = {"prototype": y_proto, "knn": y_knn, "aux": y_aux}.get(canonical, y_proto)
             out = {
                 "n_erro": int(err.sum()), "metodo_canonico": canonical, "taxonomia_primaria": "grossa",
                 # PRIMARIA: grossa, metodo canonico (headline do Estagio 2)
                 "grossa": _metrics(_to_coarse(yt), _to_coarse(canon), ID_TO_COARSE, g_e),
-                # secundaria: fina, ambos os metodos (aux = diagnostico)
+                # secundaria: fina, todos os metodos (o nao-canonico = diagnostico/ablacao)
                 "fina": {"por_prototipo": _metrics(yt, y_proto, ID_TO_CATEGORY, g_e),
-                         "por_aux_head": _metrics(yt, y_aux, ID_TO_CATEGORY, g_e)},
+                         "por_aux_head": _metrics(yt, y_aux, ID_TO_CATEGORY, g_e),
+                         "por_knn": _metrics(yt, y_knn, ID_TO_CATEGORY, g_e)},
                 "_yt_co": _to_coarse(yt), "_yp_co": _to_coarse(canon),
             }
             return out
@@ -613,7 +627,14 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
                                        s2_tr["grossa"]["classes"], s2_tr["grossa"]["f1_macro"], suffix="_treino")
 
     # ---- decision bundle (para inferencia self-contained) — SEMPRE calibrado na val ----
+    # gate=knn -> 'prototypes' = refs LIMPAS cruas; stage2=knn -> 'cat_prototypes' = refs de ERRO
+    # cruas (em vez de centroides), p/ a inferencia reconstruir os MESMOS decisores k-NN avaliados.
     d = z_tr.shape[1]
+    if cfg.decision.stage2_method == "knn" and z_err_tr is not None and len(z_err_tr) > 0:
+        save_cat_protos, save_cat_ids = z_err_tr.astype(np.float32), cat_err_tr.astype(int)
+    else:
+        save_cat_protos = cat_protos if cat_protos is not None else np.zeros((0, d), dtype=np.float32)
+        save_cat_ids = cat_proto_ids if cat_proto_ids is not None else np.zeros((0,), dtype=int)
     np.savez(
         Path(cfg.paths.models_dir) / "decision.npz",
         prototypes=protos,
@@ -626,18 +647,22 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
         target_precision=np.array([cfg.decision.target_precision]),
         multiclass=np.array([int(multiclass)]),
         categories=np.array(CATEGORIES if multiclass else ["clean", "error"]),
-        cat_prototypes=(cat_protos if cat_protos is not None
-                        else np.zeros((0, d), dtype=np.float32)),
-        cat_proto_ids=(cat_proto_ids if cat_proto_ids is not None
-                       else np.zeros((0,), dtype=int)),
+        cat_prototypes=save_cat_protos,
+        cat_proto_ids=save_cat_ids,
+        gate_method=np.array([gate_method]),
+        stage2_method=np.array([cfg.decision.stage2_method]),
+        knn_k=np.array([cfg.decision.knn_k]),
     )
     _confusion_plot(rep_dir, tp, tn, fp, fn, report["ponto_operacao"], split_name=ho_name.upper(), suffix="")
     opt = report["ponto_operacao_treino"]; ct = opt["confusao"]
     _confusion_plot(rep_dir, ct["TP"], ct["TN"], ct["FP"], ct["FN"], opt,
                     split_name="TRAIN", suffix="_treino")
 
-    # ---- plots ----
-    _plots(rep_dir, ho, sp_ho, fused_ho, va, fused_va, y_sy, s_sy_fus, thr_results)
+    # ---- plots ---- (diagnostico; nunca deve derrubar a avaliacao / perder as metricas)
+    try:
+        _plots(rep_dir, ho, sp_ho, fused_ho, va, fused_va, y_sy, s_sy_fus, thr_results)
+    except Exception as e:
+        print(f"  [aviso] _plots falhou ({type(e).__name__}: {e}) — métricas preservadas, gráfico omitido.")
 
     out_name = "evaluation_report.json" if final_test else "evaluation_report_dev.json"
     with open(rep_dir / out_name, "w") as f:
@@ -690,10 +715,19 @@ def _plots(rep_dir, te, sp_te, fused_te, va, fused_va, y_sy, s_sy_fus, thr_resul
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    # bins SEGUROS: modelos degenerados (ex.: triplet colapsado) produzem score quase-constante
+    # -> np.histogram falha com "Too many bins for data range". Usa 1 bin quando a faixa e' ~0.
+    def _bins(*arrs):
+        v = np.concatenate([np.asarray(a, float).ravel() for a in arrs if len(a)]) if arrs else np.array([])
+        v = v[np.isfinite(v)]
+        return 20 if (len(v) > 1 and (v.max() - v.min()) > 1e-9) else 1
+
     fig, ax = plt.subplots(1, 3, figsize=(16, 4.5))
     # distribuicao de score por classe (test)
-    ax[0].hist(fused_te[te["label"] == 0], bins=20, alpha=0.6, label="no-error", color="tab:green")
-    ax[0].hist(fused_te[te["label"] == 1], bins=20, alpha=0.6, label="error", color="tab:red")
+    c0, e0 = fused_te[te["label"] == 0], fused_te[te["label"] == 1]
+    b0 = _bins(c0, e0)
+    ax[0].hist(c0, bins=b0, alpha=0.6, label="no-error", color="tab:green")
+    ax[0].hist(e0, bins=b0, alpha=0.6, label="error", color="tab:red")
     ax[0].set_title("Fusion score on held-out (real)"); ax[0].set_xlabel("p(error)"); ax[0].legend()
     # PR curve
     p, r, _ = precision_recall_curve(te["label"], fused_te)
@@ -701,8 +735,10 @@ def _plots(rep_dir, te, sp_te, fused_te, va, fused_va, y_sy, s_sy_fus, thr_resul
     ax[1].set_xlabel("recall"); ax[1].set_ylabel("precision"); ax[1].set_ylim(0, 1.02)
     # confound-free synthetic (may be absent if synthetic.enabled=false)
     if y_sy is not None and s_sy_fus is not None:
-        ax[2].hist(s_sy_fus[y_sy == 0], bins=20, alpha=0.6, label="clean", color="tab:green")
-        ax[2].hist(s_sy_fus[y_sy == 1], bins=20, alpha=0.6, label="synthetic error", color="tab:red")
+        c2, e2 = s_sy_fus[y_sy == 0], s_sy_fus[y_sy == 1]
+        b2 = _bins(c2, e2)
+        ax[2].hist(c2, bins=b2, alpha=0.6, label="clean", color="tab:green")
+        ax[2].hist(e2, bins=b2, alpha=0.6, label="synthetic error", color="tab:red")
         ax[2].set_title("Confound-free synthetic"); ax[2].set_xlabel("p(error)"); ax[2].legend()
     else:
         ax[2].text(0.5, 0.5, "synthetic probe\nunavailable", ha="center", va="center")

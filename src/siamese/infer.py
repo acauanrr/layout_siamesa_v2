@@ -8,7 +8,7 @@ import torch
 
 from .backbone import DinoV2Backbone, BackboneConfig, load_image
 from .train import load_model
-from .decision import PrototypeDecider, assign_category
+from .decision import (PrototypeDecider, KNNDecider, KNNCategoryClassifier, assign_category)
 
 
 def _sigmoid(x):
@@ -33,12 +33,27 @@ class Predictor:
         self.categories = [str(c) for c in d["categories"]] if "categories" in d else ["clean", "error"]
         self.cat_prototypes = d["cat_prototypes"] if "cat_prototypes" in d else None
         self.cat_proto_ids = d["cat_proto_ids"] if "cat_proto_ids" in d else None
+        # método de decisão (default prototype p/ bundles antigos sem a chave)
+        self.gate_method = str(d["gate_method"][0]) if "gate_method" in d else "prototype"
+        self.stage2_method = str(d["stage2_method"][0]) if "stage2_method" in d else "prototype"
+        self.knn_k = int(d["knn_k"][0]) if "knn_k" in d else 5
 
         self.backbone = DinoV2Backbone(BackboneConfig(
             size=self.size, use_patch_stats=self.use_patch_stats,
             preprocess=self.preprocess, device=self.device))
         self.model = load_model(models_dir / "siamese_head.pt", device=self.device)
-        self.decider = PrototypeDecider(self.prototypes, self.threshold, self.target_precision)
+        # GATE: reconstrói EXATAMENTE o decisor avaliado (k-NN sobre as refs cruas, ou protótipo).
+        # Crucial: a fusão+limiar foram calibrados sobre ESTE score — usar o decisor errado
+        # miscalibraria a decisão silenciosamente.
+        if self.gate_method == "knn":
+            self.decider = KNNDecider(self.prototypes, k=self.knn_k)
+            self.decider.threshold = self.threshold
+        else:
+            self.decider = PrototypeDecider(self.prototypes, self.threshold, self.target_precision)
+        # ESTÁGIO 2: k-NN de categoria (refs de erro cruas) ou protótipo de categoria.
+        self.cat_knn = (KNNCategoryClassifier(self.cat_prototypes, self.cat_proto_ids, k=self.knn_k)
+                        if (self.stage2_method == "knn" and self.cat_prototypes is not None
+                            and len(self.cat_prototypes)) else None)
 
     def _aux_err(self, aux: np.ndarray) -> float:
         """Score escalar de erro (mesma definicao usada para calibrar a fusao em evaluate.py).
@@ -77,16 +92,20 @@ class Predictor:
             "categoria": None,
             "scores_por_categoria": None,
         }
-        # ESTAGIO 2 — se ERRO, atribui a categoria pelo protótipo mais proximo
+        # ESTAGIO 2 — se ERRO, atribui a categoria (k-NN de categoria ou protótipo mais próximo)
         if is_err and self.multiclass and self.cat_prototypes is not None and len(self.cat_prototypes):
-            cid = int(assign_category(z, self.cat_prototypes, self.cat_proto_ids)[0])
+            _name = lambda c: (self.categories[int(c)] if int(c) < len(self.categories) else str(int(c)))
+            if self.cat_knn is not None:
+                cid = int(self.cat_knn.predict(z)[0])
+                sc, classes = self.cat_knn.class_scores(z)        # média top-k sim por classe
+                best = {_name(c): float(s) for c, s in zip(classes, sc.ravel())}
+            else:
+                cid = int(assign_category(z, self.cat_prototypes, self.cat_proto_ids)[0])
+                from sklearn.preprocessing import normalize
+                sims = (normalize(z) @ self.cat_prototypes.T).ravel()   # sim a cada protótipo
+                best = {}
+                for c, s in zip(self.cat_proto_ids, sims):
+                    best[_name(c)] = max(best.get(_name(c), -1.0), float(s))
             out["categoria"] = self.categories[cid] if cid < len(self.categories) else str(cid)
-            # similaridade (1 - dist cosseno) a cada protótipo de categoria, p/ transparencia
-            from sklearn.preprocessing import normalize
-            sims = (normalize(z) @ self.cat_prototypes.T).ravel()
-            best = {}
-            for c, s in zip(self.cat_proto_ids, sims):
-                name = self.categories[int(c)] if int(c) < len(self.categories) else str(int(c))
-                best[name] = max(best.get(name, -1.0), float(s))
             out["scores_por_categoria"] = dict(sorted(best.items(), key=lambda kv: -kv[1]))
         return out

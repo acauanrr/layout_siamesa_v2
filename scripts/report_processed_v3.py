@@ -43,7 +43,7 @@ from siamese.config import Config
 from siamese.features import load_embeddings
 from siamese.train import load_model
 from siamese.evaluate import model_embeddings, _aux_err
-from siamese.decision import assign_category
+from siamese.decision import assign_category, KNNCategoryClassifier
 from siamese.manifest import CATEGORIES, ID_TO_CATEGORY, category_id
 
 CAT_COLORS = {"clean": "#2ca02c", "black_bars": "#1f77b4", "disordered_layout": "#9467bd",
@@ -293,8 +293,12 @@ def main():
     protos_clean = dn["prototypes"]; fcoef = dn["fusion_coef"]; fint = float(dn["fusion_intercept"][0])
     thr = float(dn["threshold"][0])
     cat_protos = dn["cat_prototypes"]; cat_proto_ids = dn["cat_proto_ids"]
+    # método CANÔNICO do Estágio 2 (mesma decisão da produção/evaluate): prototype | knn
+    stage2_method = str(dn["stage2_method"][0]) if "stage2_method" in dn else "prototype"
+    knn_k = int(dn["knn_k"][0]) if "knn_k" in dn else 5
+    cat_clf = KNNCategoryClassifier(cat_protos, cat_proto_ids, k=knn_k) if stage2_method == "knn" else None
 
-    # 5 protótipos: clean (gate) + 4 de erro (bundle)
+    # 5 protótipos/centróides p/ os ★ do cluster (clean + média por classe de erro)
     protos5 = np.concatenate([protos_clean, cat_protos], axis=0)
     ids5 = np.concatenate([np.zeros(len(protos_clean), int), cat_proto_ids]).astype(int)
 
@@ -313,19 +317,36 @@ def main():
     fu_tr, fu_te = fused(z_tr, aux_tr), fused(z_te, aux_te)
     pred_bin_tr, pred_bin_te = (fu_tr > thr).astype(int), (fu_te > thr).astype(int)
 
-    # 5-classes = SISTEMA REAL DE 2 ESTAGIOS (clean se o gate disser sem-erro; senao a categoria do
-    # protótipo de erro mais proximo). Assim a coluna 'clean' bate EXATAMENTE com a matriz binaria.
+    # 5-classes = SISTEMA REAL DE 2 ESTAGIOS (clean se o gate disser sem-erro; senão a categoria do
+    # decisor canônico do Estágio 2 — k-NN ou protótipo). Assim a coluna 'clean' bate EXATAMENTE com
+    # a matriz binária, e a categoria reflete a MESMA decisão da produção (evaluate.py).
+    def cat_predict_err(z_err):
+        return cat_clf.predict(z_err) if cat_clf is not None else assign_category(z_err, cat_protos, cat_proto_ids)
+
     def cat_pred_2stage(z, fu):
         pred = np.zeros(len(z), int)             # 0 = clean (gate disse sem-erro)
         err = fu > thr
         if err.any():
-            pred[err] = assign_category(z[err], cat_protos, cat_proto_ids)
+            pred[err] = cat_predict_err(z[err])
         return pred
 
-    # score por classe (similaridade ao protótipo da classe) -> AUROC one-vs-rest, livre de limiar
+    # score por classe -> AUROC one-vs-rest, livre de limiar. clean = sim ao protótipo limpo;
+    # erros = média top-k (k-NN) ou max-sim (protótipo) ao decisor canônico de categoria.
     def class_scores(z):
-        zc = normalize(z); sims = zc @ protos5.T
-        return np.column_stack([sims[:, ids5 == c].max(1) for c in range(len(CATS))])
+        zc = normalize(z)
+        out = np.zeros((len(z), len(CATS)))
+        out[:, 0] = (zc @ normalize(protos_clean).T).max(1)
+        if cat_clf is not None:
+            sc, classes = cat_clf.class_scores(z)
+            for j, c in enumerate(classes):
+                out[:, int(c)] = sc[:, j]
+        else:
+            sims = zc @ cat_protos.T
+            for c in range(1, len(CATS)):
+                m = cat_proto_ids == c
+                if m.any():
+                    out[:, c] = sims[:, m].max(1)
+        return out
 
     pred5_tr, sc5_tr = cat_pred_2stage(z_tr, fu_tr), class_scores(z_tr)
     pred5_te, sc5_te = cat_pred_2stage(z_te, fu_te), class_scores(z_te)

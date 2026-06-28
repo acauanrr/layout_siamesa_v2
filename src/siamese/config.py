@@ -63,7 +63,8 @@ class TrainCfg:
     weight_decay: float = 1e-4
     batch_size: int = 128
     temperature: float = 0.1
-    loss: str = "supcon"          # supcon | contrastive
+    loss: str = "supcon"          # supcon | contrastive | triplet (batch-hard online mining)
+    triplet_margin: float = 0.5   # margem da triplet loss (usado quando loss='triplet')
     aux_weight: float = 0.3       # peso do cabecalho auxiliar de classificacao
     multiclass: bool = True       # True: clusteriza por CATEGORIA (clean + 4 erros); aux=softmax,
                                   # SupCon por categoria, batches balanceados por classe.
@@ -88,6 +89,11 @@ class TrainCfg:
 @dataclass
 class DecisionCfg:
     k_prototypes: int = 1
+    gate_method: str = "prototype" # decisor do GATE (Estagio 1): "prototype" (k-means do cluster
+                                   # limpo) | "knn" (vizinhos mais proximos as limpas de treino —
+                                   # melhor p/ manifold limpo multimodal). A fusao com a cabeca aux
+                                   # e a calibracao do limiar sao identicas nos dois.
+    knn_k: int = 5                 # k dos decisores k-NN (gate e/ou Estagio 2), quando ativos
     objective: str = "f1"          # "f1" = ponto balanceado (padrao p/ acuracia/comparacao)
                                    # "precision" = alta precisao (usa target_precision)
                                    # "specificity" = ponto specificity-first (usa target_specificity)
@@ -103,9 +109,9 @@ class DecisionCfg:
     #   "real_val" (legado): so a val real (26 limpas + erros reais) — ponto de operacao instavel.
     calibrate_on: str = "confound_free"
     stage2_method: str = "prototype"   # decisor CANONICO do Estagio 2 (categoria): "prototype"
-                                       # (protótipo de categoria no espaco z — coerente com o
-                                       # Estagio 1) | "aux" (argmax da cabeca aux). O outro vira
-                                       # diagnostico/ablacao em evaluate.py.
+                                       # (protótipo de categoria no espaco z) | "knn" (k-NN aos
+                                       # erros de treino por categoria) | "aux" (argmax da cabeca
+                                       # aux). Os demais viram diagnostico/ablacao em evaluate.py.
     coarse_taxonomy: bool = True       # avalia o Estagio 2 TAMBEM na taxonomia grossa (3 super-
                                        # classes por nao-colisao) — reportada como PRIMARIA por ter
                                        # poder estatistico; a fina (6 classes) vira secundaria.

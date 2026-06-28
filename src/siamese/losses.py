@@ -49,3 +49,31 @@ def contrastive_loss(z1: torch.Tensor, z2: torch.Tensor, y: torch.Tensor,
     loss_sim = (1 - y) * 0.5 * d.pow(2)
     loss_dis = y * 0.5 * F.relu(margin - d).pow(2)
     return (loss_sim + loss_dis).mean()
+
+
+def triplet_loss(z: torch.Tensor, labels: torch.Tensor, margin: float = 0.5) -> torch.Tensor:
+    """Triplet loss com ONLINE BATCH-HARD mining (Hermans et al. 2017), vetorizada.
+
+    z: [B, d] L2-normalizado. labels: [B] inteiros (categoria). Para cada ancora i, escolhe o
+    POSITIVO mais distante (mesma classe) e o NEGATIVO mais proximo (classe diferente) DENTRO do
+    batch — os trios mais dificeis — e minimiza relu(d(a,p_hard) - d(a,n_hard) + margin). Distancia
+    euclidiana sobre z normalizado (= sqrt(2-2cos)). Ancoras sem positivo OU sem negativo no batch
+    sao ignoradas (o sampler balanceado garante >=2/classe, entao positivos existem).
+
+    Alternativa configuravel ao SupCon (train.loss='triplet'). SupCon usa TODOS os positivos/
+    negativos por batch (sem mining); o batch-hard foca no trio mais dificil — comparativo empirico
+    em scripts/compare_methods.py.
+    """
+    B = z.shape[0]
+    d = torch.cdist(z, z)                                  # [B,B] distancia euclidiana
+    same = labels.view(-1, 1) == labels.view(1, -1)        # [B,B] mesma classe
+    eye = torch.eye(B, dtype=torch.bool, device=z.device)
+    pos_mask = same & ~eye                                 # positivos (sem a diagonal)
+    neg_mask = ~same                                       # negativos
+    # hardest positive = MAIOR distancia entre mesma classe; hardest negative = MENOR entre classes
+    d_pos = d.masked_fill(~pos_mask, float("-inf")).max(dim=1).values
+    d_neg = d.masked_fill(~neg_mask, float("inf")).min(dim=1).values
+    valid = pos_mask.any(dim=1) & neg_mask.any(dim=1)
+    if valid.sum() == 0:
+        return z.sum() * 0.0
+    return F.relu(d_pos[valid] - d_neg[valid] + margin).mean()

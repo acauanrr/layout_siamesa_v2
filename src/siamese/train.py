@@ -45,8 +45,8 @@ def _file_sha256(p: Path) -> str:
         return "missing"
 from .features import load_embeddings
 from .model import SiameseNet
-from .losses import supcon_loss, contrastive_loss
-from .decision import (fit_prototypes, PrototypeDecider,
+from .losses import supcon_loss, contrastive_loss, triplet_loss
+from .decision import (fit_prototypes, PrototypeDecider, KNNDecider,
                        fit_category_prototypes, assign_category)
 from .manifest import category_id, CATEGORIES
 
@@ -206,6 +206,8 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
             yb = yt[bidx]
             if cfg.train.loss == "supcon":
                 l_metric = supcon_loss(z, yb, cfg.train.temperature)
+            elif cfg.train.loss == "triplet":
+                l_metric = triplet_loss(z, yb, margin=getattr(cfg.train, "triplet_margin", 0.5))
             else:
                 # contrastiva: forma pares aleatorios dentro do batch
                 perm = torch.randperm(len(bidx), generator=rng).to(device)
@@ -239,10 +241,11 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
             ap_aux = average_precision_score(yva_bin, p_err)
 
             # GATE LIVRE DE CONFOUND (val): clean-val real vs val_synth (mesma resolucao)
-            sg_proto = sg_aux = float("nan")
+            sg_proto = sg_aux = sg_knn = float("nan")
             if Xva_synth is not None:
                 z_vs, aux_vs = model(Xva_synth)
-                sp_synth = decider.scores(z_vs.cpu().numpy())
+                z_vs_np = z_vs.cpu().numpy()
+                sp_synth = decider.scores(z_vs_np)
                 clean_va = yva_bin == 0
                 y_cf = np.concatenate([np.zeros(int(clean_va.sum())), np.ones(len(sp_synth))])
                 sg_proto = float(roc_auc_score(y_cf, np.concatenate([score_proto[clean_va], sp_synth])))
@@ -251,6 +254,11 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
                 else:
                     pe_synth = torch.sigmoid(aux_vs).cpu().numpy()
                 sg_aux = float(roc_auc_score(y_cf, np.concatenate([p_err[clean_va], pe_synth])))
+                # gate k-NN livre de confound (diagnostico/opcional; default early-stop = aux,
+                # method-agnostic, p/ o modelo nao depender do gate_method na comparacao).
+                _knn = KNNDecider(z_all_np[clean_idx.cpu().numpy()], k=cfg.decision.knn_k)
+                sg_knn = float(roc_auc_score(
+                    y_cf, np.concatenate([_knn.scores(z_va_np)[clean_va], _knn.scores(z_vs_np)])))
 
         cat_f1 = float("nan")
         if multiclass and err_tr_np.sum() > 0 and err_va_np.sum() > 0:
@@ -272,6 +280,7 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
             "val_cat_f1": cat_f1,
             "val_synth_gate": sg_aux,
             "val_synth_gate_proto": sg_proto,
+            "val_synth_gate_knn": sg_knn,
             "val_synth_gate_max": (max(sg_proto, sg_aux) if has_synth else float("nan")),
         }
         metrics["val_synth_gate+cat_f1"] = (

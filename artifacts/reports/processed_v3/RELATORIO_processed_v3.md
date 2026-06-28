@@ -28,7 +28,7 @@ Teste = held-out (108 imagens); treino = in-sample (273), mostrado só como refe
 | split | Acurácia | F1-macro | AUROC-macro |
 |---|---:|---:|---:|
 | TREINO (in-sample) | 0.88 | 0.88 | 0.99 |
-| **TESTE (held-out)** | **0.38** | **0.29** | **0.60** |
+| **TESTE (held-out)** | **0.38** | **0.29** | **0.61** |
 
 ## 4. Quão bem identifica CADA classe (teste held-out)
 - `metricas_por_classe.png`
@@ -37,9 +37,9 @@ Teste = held-out (108 imagens); treino = in-sample (273), mostrado só como refe
 |---|---:|---:|---:|---:|---:|---:|
 | `clean` | 41 | 0.46 | 0.59 | 0.52 | 0.61 | 0.58 |
 | `black_bars` | 22 | 0.52 | 0.50 | 0.51 | 0.68 | 0.81 |
-| `disordered_layout` | 10 | 0.00 | 0.00 | 0.00 | 0.52 | 0.78 |
-| `empty_space` | 14 | 0.23 | 0.21 | 0.22 | 0.60 | 0.81 |
-| `overlay` | 21 | 0.38 | 0.14 | 0.21 | 0.61 | 0.79 |
+| `disordered_layout` | 10 | 0.00 | 0.00 | 0.00 | 0.52 | 0.81 |
+| `empty_space` | 14 | 0.23 | 0.21 | 0.22 | 0.61 | 0.81 |
+| `overlay` | 21 | 0.25 | 0.14 | 0.18 | 0.63 | 0.75 |
 
 > **Leitura por classe:** *precisão* = dos que o sistema chamou de X, quantos eram X; *recall* = dos
 > X reais, quantos o sistema identificou como X **fim-a-fim** (passar no gate **e** acertar a

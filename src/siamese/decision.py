@@ -70,6 +70,68 @@ def assign_category(z: np.ndarray, protos: np.ndarray, proto_cat: np.ndarray) ->
     return proto_cat[sims.argmax(axis=1)]
 
 
+# ---------------------------------------------------------------------------------------------
+# DECISORES k-NN (não-paramétricos) — alternativa aos protótipos de k-means para manifolds
+# multimodais. A classe "limpa" é multimodal (onboarding/home/settings de apps distintos): um
+# centroide de k-means pode cair no "vazio" entre modos e gerar falso-positivo; o k-NN mede a
+# proximidade às limpas REAIS de treino, adaptando-se a qualquer geometria. Ativado por
+# decision.gate_method='knn' / stage2_method='knn'. Custo desprezível (~poucas centenas de refs).
+# REFERÊNCIA = só embeddings de TREINO (anti-vazamento, idêntico ao protótipo).
+# RESULTADO EMPÍRICO (docs/COMPARACAO_KNN_TRIPLET.md): no gate NÃO supera o protótipo (até reduz a
+# especificidade — o cluster limpo de teste é mesmo-device); no Estágio 2 dá ganho modesto na
+# categoria coarse (0.626->0.641). Default permanece 'prototype'.
+# ---------------------------------------------------------------------------------------------
+@dataclass
+class KNNDecider:
+    """Gate one-class por k-NN: score de anomalia = 1 − média da similaridade-cosseno aos k
+    vizinhos LIMPOS de treino mais próximos. Mesma semântica/interface de PrototypeDecider.scores
+    (maior = mais anômalo), então entra direto na fusão/limiar do evaluate.py."""
+    z_clean: np.ndarray            # [M, d] embeddings LIMPOS de treino (referência)
+    k: int = 5
+    threshold: float = 0.0
+
+    def __post_init__(self):
+        self._ref = normalize(self.z_clean)
+        self._k = int(min(self.k, len(self._ref)))
+
+    def scores(self, z: np.ndarray) -> np.ndarray:
+        sims = normalize(z) @ self._ref.T                  # [N, M] cos-sim
+        topk = np.partition(sims, -self._k, axis=1)[:, -self._k:]   # k MAIORES sims por linha
+        return 1.0 - topk.mean(axis=1)                     # 1 − média top-k = distância média
+
+    def predict(self, z: np.ndarray) -> np.ndarray:
+        return (self.scores(z) > self.threshold).astype(int)
+
+
+@dataclass
+class KNNCategoryClassifier:
+    """ESTÁGIO 2 por k-NN: para cada categoria c, score_c(z) = média das top-k similaridades aos
+    embeddings de ERRO de treino da classe c. Robusto a desbalanceamento de classe (cada classe é
+    pontuada no seu próprio espaço, ao contrário da votação majoritária global por bincount, que
+    favoreceria classes mais frequentes). predict = argmax_c score_c."""
+    z_err: np.ndarray              # [M, d] embeddings de ERRO de treino
+    cat_ids: np.ndarray            # [M] id de categoria (>=1) de cada um
+    k: int = 5
+
+    def __post_init__(self):
+        self._ref = normalize(self.z_err)
+        self.classes = np.array(sorted({int(c) for c in self.cat_ids}), dtype=int)
+
+    def class_scores(self, z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """(scores [N, C], classes [C]) — média das top-k sims aos refs de cada classe."""
+        zc = normalize(z)
+        out = np.zeros((len(z), len(self.classes)), dtype=float)
+        for j, c in enumerate(self.classes):
+            sims_c = zc @ self._ref[self.cat_ids == c].T   # [N, n_c]
+            kk = min(self.k, sims_c.shape[1])
+            out[:, j] = np.partition(sims_c, -kk, axis=1)[:, -kk:].mean(axis=1)
+        return out, self.classes
+
+    def predict(self, z: np.ndarray) -> np.ndarray:
+        sc, classes = self.class_scores(z)
+        return classes[sc.argmax(axis=1)]
+
+
 def select_threshold_max_f1(scores: np.ndarray, labels: np.ndarray) -> tuple[float, dict]:
     """Limiar que MAXIMIZA o F1 (ponto de operacao BALANCEADO, justo para comparacao).
 
