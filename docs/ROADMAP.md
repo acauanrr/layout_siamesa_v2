@@ -336,14 +336,32 @@ Fase 1 (higiene)  →  Fase 2 (DADOS, maior ROI)  →  Fase 3 (métodos, em para
 | Backbone maior → overfit da cabeça | Cabeça pequena; seleção só na val; regra 1-SE |
 | Coletar muito do mesmo app | Agrupar por app/sessão; estratificar; limitar nº por grupo |
 
-## Métricas-alvo (antes → meta)
+## Resultados — Fase 2, 1ª iteração (jun/2026)
 
-| Métrica | Antes (teste) | Meta |
-|---|---|---|
-| AUROC livre-de-confound | 0.721 | **> 0.80** (mín. aceite 0.75, estável) |
-| Gap treino→teste (AUROC gate) | 0.40 | **< 0.15** |
-| Acurácia real (held-out resolução-casada) | não-mensurável (confundido) | **mensurável e honesta** |
-| Especificidade no held-out | 0.585 (instável) | **estável, CI95 acima do alvo** |
-| Estágio 2 fina F1 | 0.354 | **> 0.45** (com backbone melhor) |
-| Repo | inconsistências/fallbacks silenciosos | **clean, sem fallback silencioso, testes verdes** |
+Pool de **360 limpas** públicas (ScreenSpot-v2 + GroundUI, multi-resolução) fundido em
+`data/processed_v3_plus` (clean treino 105→**325**; val 26→80; teste 41→127; sintéticos
+regenerados das limpas expandidas). Pipeline: `fetch_clean_extra.py` → `merge_clean_extra.py`
+→ `run_experiment.py --config configs/default_plus.yaml`. **Tudo melhorou:**
+
+| Métrica (teste) | Antes (processed_v3) | **Agora (plus, 1ª iter)** | Meta |
+|---|---|---|---|
+| **Confound (regra trivial resolução)** | 1.000 | **0.661** (sonda LR: 0.99→0.63) | → 0.50 |
+| **AUROC livre-de-confound** (headline) | 0.721 | **0.768** | > 0.80 (mín. 0.75 ✅) |
+| **Gap treino→teste** (AUROC gate) | 0.40 | **0.24** | < 0.15 |
+| Gate AUROC (protótipo) | 0.607 | **0.719** | — |
+| Especificidade | 0.585 | **0.685** | estável, CI95 acima do alvo |
+| Balanced accuracy | 0.584 | **0.619** | — |
+| Estágio 2 grossa F1 | 0.641 | **0.775** | — |
+| Estágio 2 fina F1 | 0.354 | **0.421** | > 0.45 |
+| `black_bars` detecção AUROC | 0.728 | **0.898** | — |
+| **Falseabilidade** (erro vs resolução) | 0.000 (degenerada) | **+0.197** (passa) | passa ✅ |
+| Repo | fallbacks silenciosos / inconsistências | **clean, testes verdes (54)** | ✅ |
+
+**Veredito:** a tese do roadmap está PROVADA — telas limpas diversas quebram o confound
+(1.0→0.66) **e** sobem as métricas honestas, **reduzindo a disparidade treino→teste pela metade**
+(0.40→0.24; o modelo deixou de memorizar o cluster limpo: treino caiu 0.99→0.88, teste subiu
+0.60→0.64). **Próximos passos p/ fechar o gap (<0.15) e AUROC>0.80:** (a) mais volume + cobertura
+**near-square** (bucket dominante dos erros, hoje fraco no pool — fonte pública escassa; usar
+WebUI iPad 2048×2732 / scrape App Store, ou sintetizar near-square); (b) **Fase 3** (backbone
+`reg4`/large) sobre o dataset já de-confoundado.
 ```

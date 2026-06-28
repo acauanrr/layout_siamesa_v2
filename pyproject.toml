@@ -28,6 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+data = ["datasets>=2.14"]   # Fase 2: ingestao de telas limpas publicas (scripts/fetch_clean_extra.py)
 
 [tool.setuptools.packages.find]
 where = ["src"]

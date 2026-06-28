@@ -29,6 +29,10 @@ data/*
 artifacts/embeddings/
 # pesos da cabeca + decision.npz + banco PatchCore (~1 MB)
 artifacts/models/
+# variantes _plus (Fase 2: dataset de-confoundado processed_v3_plus) — regeneraveis
+artifacts/embeddings_plus/
+artifacts/models_plus/
+artifacts/reports_plus/
 # 480 imagens corrompidas + pares (~330 MB; screenshots reais)
 artifacts/synthetic_images/
 # 376 overlays (~106 MB; screenshots reais)
