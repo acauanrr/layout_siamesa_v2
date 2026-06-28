@@ -309,9 +309,24 @@ def main():
     z_tr, aux_tr = model_embeddings(model, tr["emb"], device)
     z_te, aux_te = model_embeddings(model, te["emb"], device)
 
+    # lê o método do gate e o flag multi-classe do bundle (NÃO hardcoda — antes assumia
+    # prototype+multiclass, divergindo da produção se gate_method=knn ou modelo binário).
+    multiclass = bool(int(dn["multiclass"][0])) if "multiclass" in dn else True
+    gate_method = str(dn["gate_method"][0]) if "gate_method" in dn else "prototype"
+    knn_k_gate = int(dn["knn_k"][0]) if "knn_k" in dn else 5
+    _refs_clean = normalize(protos_clean)   # protótipos (gate=prototype) OU refs limpas cruas (gate=knn)
+
+    def _gate_score(z):
+        # MESMO score do evaluate.py: prototype = 1 - max_sim; knn = 1 - média top-k sim.
+        sims = normalize(z) @ _refs_clean.T
+        if gate_method == "knn":
+            kk = min(knn_k_gate, sims.shape[1])
+            return 1.0 - np.partition(sims, -kk, axis=1)[:, -kk:].mean(axis=1)
+        return 1.0 - sims.max(1)
+
     def fused(z, aux):
-        zc = normalize(z); sp = 1.0 - (zc @ normalize(protos_clean).T).max(1)
-        ae = _aux_err(aux, True)
+        sp = _gate_score(z)
+        ae = _aux_err(aux, multiclass)
         return 1.0 / (1.0 + np.exp(-(fcoef[0] * sp + fcoef[1] * ae + fint)))
 
     fu_tr, fu_te = fused(z_tr, aux_tr), fused(z_te, aux_te)
@@ -335,7 +350,7 @@ def main():
     def class_scores(z):
         zc = normalize(z)
         out = np.zeros((len(z), len(CATS)))
-        out[:, 0] = (zc @ normalize(protos_clean).T).max(1)
+        out[:, 0] = 1.0 - _gate_score(z)   # similaridade ao limpo, consistente com o gate (proto/knn)
         if cat_clf is not None:
             sc, classes = cat_clf.class_scores(z)
             for j, c in enumerate(classes):

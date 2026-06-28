@@ -58,13 +58,16 @@ def _cat_ids(z: dict) -> np.ndarray:
 
 # ---------- utilitarios ----------
 def _resolutions(paths) -> np.ndarray:
-    out = []
+    out, failed = [], []
     for p in paths:
         try:
             with Image.open(p) as im:
                 out.append(im.size)
         except Exception:
-            out.append((-1, -1))
+            out.append((-1, -1)); failed.append(str(p))
+    if failed:
+        print(f"  [AVISO] _resolutions: {len(failed)} imagem(ns) ilegivel(is) -> tratada(s) como "
+              f"(-1,-1), o que CORROMPE os baselines de confound/resolucao. Ex.: {failed[0]}")
     return np.array(out)
 
 
@@ -214,6 +217,10 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
 
     req_method = cfg.decision.calibrate_on
     eff_method = req_method if (req_method == "real_val" or cal_val_synth is not None) else "real_val"
+    if eff_method != req_method:
+        print(f"  [AVISO] calibrate_on='{req_method}' pedido mas val_synth.npz ausente -> "
+              f"calibracao DEGRADADA para 'real_val' (limiar instavel / FPR alto). "
+              f"Rode scripts/make_synthetic.py p/ a calibracao livre-de-confound.")
 
     def _fit_fusion(meth):
         csp, cae, cy = _cal_set(meth)
@@ -298,6 +305,11 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
         if s_conf is not None:
             ctrl["baseline_confound"] = auroc_ap(ho["label"][m], s_conf[m])
         report["primaria_subconjunto_controlado"] = ctrl
+    else:
+        print(f"  [AVISO] subconjunto controlado vazio/degenerado "
+              f"(clean={int((ho['label']==0).sum())}, erros unfold/portrait/screenshot="
+              f"{int((m & (ho['label']==1)).sum())}) -> metrica PRIMARIA pulada. "
+              f"Cheque form_factor/orientation/kind em labels.csv.")
 
     # ---- 3) deteccao SINTETICA livre de confound (clean-holdout vs synth-holdout) ----
     # Metrica DEV honesta: prototipos vem do TRAIN, entao mesmo com ho=val nao ha resubstituicao
@@ -529,8 +541,8 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
     # Decisor CANONICO = PROTOTIPO de categoria (cfg.decision.stage2_method): mesma nocao do
     # Estagio 1 (1-cos ao prototipo) -> narrativa unica "distancia a prototipos no espaco SupCon".
     # A cabeca aux fica como DIAGNOSTICO/ablacao (nao decisor). Reportamos:
-    #   - taxonomia GROSSA (3 super-classes por nao-colisao) = PRIMARIA (tem poder estatistico);
-    #   - taxonomia FINA (6 classes) = secundaria/exploratoria (teto estrutural, DESIGN §10.5);
+    #   - taxonomia GROSSA (2 super-classes de erro por nao-colisao) = PRIMARIA (poder estatistico);
+    #   - taxonomia FINA (4 classes) = secundaria/exploratoria (teto estrutural, DESIGN §10.5);
     #   - ORACULO (todos os erros) e CONDICIONAL ao gate E1 (so erros que o E1 sinalizou = PRODUCAO).
     cat_protos = cat_proto_ids = None
     clean_id = CATEGORY_TO_ID[CLEAN_CATEGORY]
@@ -610,7 +622,7 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
             rep_e2 = {
                 "metodo_canonico": canonical,
                 "nota": ("E2 atribui categoria SO a imagens de ERRO via PROTOTIPO de categoria "
-                         "(canonico). PRIMARIA = taxonomia GROSSA (3 super-classes). 'condicional_"
+                         "(canonico). PRIMARIA = taxonomia GROSSA (2 super-classes). 'condicional_"
                          "ao_gate' = so erros que o E1 sinalizou (= producao). aux_head = diagnostico."),
                 "oraculo": {k: v for k, v in s2_or.items() if not k.startswith("_")},
             }

@@ -68,7 +68,7 @@ def _needs_extract(keys) -> bool:
 
 
 def _extract_for(cfg: Config, processed: Path = Path("data/processed_v3")) -> None:
-    """Re-extrai embeddings da FONTE DA VERDADE (data/processed/) quando o eixo toca o backbone.
+    """Re-extrai embeddings da FONTE DA VERDADE (data/processed_v3/) quando o eixo toca o backbone.
     NB: eixos SINTETICOS (n_variants etc.) exigem re-rodar export_processed.py antes — aqui so
     re-embedamos os arquivos ja' materializados em processed/."""
     bb = DinoV2Backbone(BackboneConfig(

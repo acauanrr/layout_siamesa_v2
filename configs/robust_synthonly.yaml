@@ -1,7 +1,8 @@
-# CONFIG ROBUSTA / AGNOSTICA DE DEVICE: treina SO com limpas + sinteticos + reflow
-# (use_real_errors=false). Os erros reais sao o que puxa o modelo de volta ao confound
-# de resolucao; remove-los da o detector mais AGNOSTICO (DESIGN §7/§11). Para a alegacao
-# de robustez no paper.
+# CONFIG ROBUSTA / AGNOSTICA DE DEVICE: identico ao default.yaml mudando APENAS
+# train.use_real_errors -> false (treina so com limpas + sinteticos + reflow).
+# Os erros reais sao o que puxa o modelo de volta ao confound de resolucao; remove-los
+# da o detector mais AGNOSTICO (DESIGN §7/§11). Para a alegacao de robustez no paper.
+# (Rebaseado em jun/2026 sobre o default RE-VALIDADO.)
 seed: 42
 val_frac: 0.15
 test_frac: 0.24
@@ -31,31 +32,34 @@ synthetic:
     ar_relayout: 1.0
     band_jitter: 1.0
   p_reflow_pos: 0.0
-  benign_augment: false
+  benign_augment: true
 head:
   hidden: 256
-  proj_dim: 128
+  proj_dim: 64
   p_drop: 0.3
 train:
   epochs: 500
   lr: 0.001
   weight_decay: 0.0001
   batch_size: 128
-  temperature: 0.05
+  temperature: 0.1
   loss: supcon
-  aux_weight: 0.6
+  triplet_margin: 0.5
+  aux_weight: 0.3
   multiclass: true
-  use_real_errors: false
+  use_real_errors: false   # <<< UNICA diferenca vs default.yaml
   use_synthetic: true
   balance_batches: true
   early_stop_metric: val_synth_gate
   max_oversample_per_class: 12
   patience: 80
 decision:
+  gate_method: prototype
+  knn_k: 5
   k_prototypes: 3
-  objective: f1
+  objective: specificity
   target_precision: 0.95
-  target_specificity: 0.8
+  target_specificity: 0.80
   calibrate_on: confound_free
-  stage2_method: prototype
+  stage2_method: knn
   coarse_taxonomy: true

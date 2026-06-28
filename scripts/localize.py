@@ -19,7 +19,7 @@ import torch
 from siamese.config import Config
 from siamese.backbone import DinoV2Backbone, BackboneConfig
 from siamese.localize import SyntheticPatchLocalizer, PatchCoreLocalizer
-from siamese.geometric import GeometricDetector
+from siamese.region_detector import GeometricDetector
 
 
 def main() -> None:

@@ -7,7 +7,7 @@ o modelo treinado SO com sinteticos nao consegue aprender o confound de resoluca
 CONTEUDO do erro (deteccao sintetica livre de confound).
 
 Uso:
-    python scripts/ablation.py --config configs/patchstats.yaml
+    python scripts/ablation.py --config configs/default.yaml
 """
 from __future__ import annotations
 

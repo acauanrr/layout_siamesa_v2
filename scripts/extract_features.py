@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Extrai e cacheia embeddings DINOv2 a partir do DATASET CANONICO em data/processed/.
+"""Extrai e cacheia embeddings DINOv2 a partir do DATASET CANONICO em data/processed_v3/.
 
-FONTE DA VERDADE = data/processed/ (NAO data/input/). O que estiver materializado em
+FONTE DA VERDADE = data/processed_v3/ (NAO data/input/). O que estiver materializado em
 processed/<split>/<fonte>/<categoria>/ e' exatamente o que o modelo usa — incluindo
 correcoes/ajustes manuais. Varre a arvore, deriva split/fonte/categoria/label do caminho e
 os metadados do nome do arquivo, e cacheia os embeddings por (split, fonte).
@@ -11,7 +11,7 @@ treino, materializados em processed/train/synthetic/). val/test_synth (sonda liv
 confound) sao gerados por make_synthetic.py a partir de processed/{val,test}/real/clean.
 
 Uso:
-    python scripts/extract_features.py --processed data/processed --out artifacts/embeddings \
+    python scripts/extract_features.py --processed data/processed_v3 --out artifacts/embeddings \
         [--use-patch-stats] [--preprocess pad] [--size 518] [--batch-size 16]
 """
 from __future__ import annotations

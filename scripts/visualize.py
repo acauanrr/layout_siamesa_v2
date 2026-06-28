@@ -37,11 +37,10 @@ from siamese.manifest import CATEGORY_TO_ID, ID_TO_CATEGORY, CATEGORIES
 
 COLORS = {"limpo": "#2ca02c", "limpo_reflow": "#98df8a", "erro_real": "#d62728",
           "erro_sintetico": "#ff7f0e", "prototipo": "#000000"}
-# paleta por CATEGORIA (multi-cluster): clean + 6 categorias de erro
+# paleta por CATEGORIA (multi-cluster): clean + 4 categorias de erro
 CATEGORY_COLORS = {
     "clean": "#2ca02c", "black_bars": "#1f77b4", "disordered_layout": "#9467bd",
-    "distortion": "#8c564b", "empty_space": "#ff7f0e", "orientation": "#e377c2",
-    "overlay": "#d62728",
+    "empty_space": "#ff7f0e", "overlay": "#d62728",
 }
 OUTCOME_COLORS = {
     "TP_acerto_erro": "#2ca02c",    # erro detectado corretamente (verde)

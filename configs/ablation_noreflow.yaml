@@ -1,5 +1,8 @@
-# ABLACAO: igual ao default mas SEM reflow-clean. Isola o efeito do reflow.
-# Use p/ reproduzir a linha sem-reflow da tabela de ablacao (docs/DESIGN.md §11).
+# ABLACAO: identico ao default.yaml, mudando APENAS synthetic.reflow_clean -> false.
+# Isola o efeito do reflow-clean (negativos de layout legitimo). Use p/ a linha
+# "sem-reflow" da tabela de ablacao (docs/DESIGN.md §11).
+# (Rebaseado em jun/2026 sobre o default RE-VALIDADO: antes divergia tambem em
+#  proj_dim/temperature/aux_weight/objective/benign/stage2 -> ablacao CONFUNDIDA.)
 seed: 42
 val_frac: 0.15
 test_frac: 0.24
@@ -20,7 +23,7 @@ synthetic:
   n_variants: 4
   max_errors_per_image: 2
   seed: 0
-  reflow_clean: false
+  reflow_clean: false      # <<< UNICA diferenca vs default.yaml
   n_reflow_variants: 4
   max_reflow_ops: 2
   reflow_ops:
@@ -29,19 +32,20 @@ synthetic:
     ar_relayout: 1.0
     band_jitter: 1.0
   p_reflow_pos: 0.0
-  benign_augment: false
+  benign_augment: true
 head:
   hidden: 256
-  proj_dim: 128
+  proj_dim: 64
   p_drop: 0.3
 train:
   epochs: 500
   lr: 0.001
   weight_decay: 0.0001
   batch_size: 128
-  temperature: 0.05
+  temperature: 0.1
   loss: supcon
-  aux_weight: 0.6
+  triplet_margin: 0.5
+  aux_weight: 0.3
   multiclass: true
   use_real_errors: true
   use_synthetic: true
@@ -50,10 +54,12 @@ train:
   max_oversample_per_class: 12
   patience: 80
 decision:
+  gate_method: prototype
+  knn_k: 5
   k_prototypes: 3
-  objective: f1
+  objective: specificity
   target_precision: 0.95
-  target_specificity: 0.8
+  target_specificity: 0.80
   calibrate_on: confound_free
-  stage2_method: prototype
+  stage2_method: knn
   coarse_taxonomy: true

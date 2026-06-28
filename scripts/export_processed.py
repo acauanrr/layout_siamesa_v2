@@ -6,10 +6,10 @@ imagens sinteticas que a rede siamesa usou. Estrutura ImageFolder-ready (split -
 categoria), legivel direto por torchvision/Keras, sem parser:
 
   data/processed/
-    train/real/<categoria>/        7 classes: clean + 6 categorias de erro
+    train/real/<categoria>/        5 classes: clean + 4 categorias de erro
     train/synthetic/<categoria>/   4 classes sinteticas (anti-confound; identicas as do treino)
-    val/real/<categoria>/          7 classes (selecao de modelo)
-    test/real/<categoria>/         7 classes (benchmark de comparacao)
+    val/real/<categoria>/          5 classes (selecao de modelo)
+    test/real/<categoria>/         5 classes (benchmark de comparacao)
     manifest.csv                   indice de TODOS os arquivos + proveniencia
     DATASET_CARD.md                taxonomia, contagens, split, uso, reprodutibilidade, ressalvas
 
@@ -207,7 +207,7 @@ Dataset para **comparacao justa entre modelos de deep learning**: todos treinam/
 > sintetica anti-confound (existe SO no train). val/test sao 100% reais (benchmark honesto). O
 > treino ve `train (real) + train (synth)`; `id` = rotulo canonico (`siamese.manifest`).
 
-## Taxonomia (7 classes)
+## Taxonomia (5 classes)
 
 | id | classe (pasta) | descricao |
 |---|---|---|
@@ -220,10 +220,10 @@ Dataset para **comparacao justa entre modelos de deep learning**: todos treinam/
 
 ```
 data/processed/
-  train/real/<categoria>/        # 7 classes (clean + 6 erros) — imagens REAIS
+  train/real/<categoria>/        # 5 classes (clean + 4 erros) — imagens REAIS
   train/synthetic/<categoria>/   # 4 classes — erros SINTETICOS (anti-confound) injetados nas limpas de treino
-  val/real/<categoria>/          # 7 classes — selecao de modelo
-  test/real/<categoria>/         # 7 classes — BENCHMARK de comparacao (held-out)
+  val/real/<categoria>/          # 5 classes — selecao de modelo
+  test/real/<categoria>/         # 5 classes — BENCHMARK de comparacao (held-out)
   manifest.csv                   # indice de todos os arquivos + proveniencia
   DATASET_CARD.md                # este arquivo
 ```
@@ -270,7 +270,7 @@ data/processed/
 
 ```python
 from torchvision.datasets import ImageFolder
-# multi-classe (7 classes), apenas dados reais:
+# multi-classe (5 classes), apenas dados reais:
 train = ImageFolder("data/processed/train/real")
 test  = ImageFolder("data/processed/test/real")
 # real + sintetico no treino: concatene train/real e train/synthetic (ou use o manifest.csv).

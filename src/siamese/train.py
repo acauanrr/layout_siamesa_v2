@@ -96,7 +96,7 @@ def _balanced_batches(y: torch.Tensor, batch_size: int, rng: torch.Generator, ba
 
     `max_oversample` (Fase 4.4): teto de quantas vezes CADA exemplo de uma classe pode
     reaparecer por epoca. Com teto, monta um POOL por classe (cada indice repetido <= teto
-    vezes, embaralhado) e consome SEM reposicao -> classes raras (orientation/distortion) nao
+    vezes, embaralhado) e consome SEM reposicao -> classes raras (ex.: disordered_layout) nao
     sao replicadas ~90x/epoca. Sem teto (0), mantem a amostragem COM reposicao (legado)."""
     classes = torch.unique(y)
     if not balance or len(classes) <= 1:
@@ -178,7 +178,7 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
 
     # NB: NAO usamos pesos de classe na cross-entropy — _balanced_batches ja apresenta as
     # classes equilibradas por batch; somar inverse-freq dobraria a correcao e faria as
-    # classes raras (orientation/distortion) dominarem.
+    # classes raras dominarem.
     nsrc = lambda s: int((src == s).sum())
     if multiclass:
         dist = {CATEGORIES[c]: int((y == c).sum()) for c in range(num_classes)}
@@ -194,6 +194,7 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
     best_sel, best_state, best_epoch, best_metrics = -1.0, None, -1, {}
     since_improve = 0
     sel_warned = False
+    selection_fellback = False   # early-stop caiu p/ val_ap (gate confundido)? -> registrado no ckpt/retorno
     history = []
 
     for epoch in range(cfg.train.epochs):
@@ -288,9 +289,10 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
 
         sel = metrics.get(sel_name, float("nan"))
         if sel != sel:  # metrica pedida ausente/NaN (ex.: val_synth sem synthetic) -> fallback honesto
+            selection_fellback = True
             if not sel_warned:
-                print(f"  [aviso] early_stop_metric='{sel_name}' indisponivel (NaN) -> "
-                      f"fallback para 'val_ap' (gate confundido). Habilite synthetic p/ a metrica honesta.")
+                print(f"  [AVISO] early_stop_metric='{sel_name}' indisponivel (NaN) -> fallback "
+                      f"para 'val_ap' (gate CONFUNDIDO por resolucao). Habilite synthetic p/ a honesta.")
                 sel_warned = True
             sel = metrics["val_ap"]
 
@@ -323,6 +325,7 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
         "categories": list(CATEGORIES) if multiclass else ["clean", "error"],
         "early_stop_metric": sel_name,
         "best_sel": best_sel, "best_epoch": best_epoch, "best_metrics": best_metrics,
+        "selection_fellback_to_val_ap": selection_fellback,
         "history": history,
         "provenance": {
             "git_commit": _git_commit(),
@@ -341,7 +344,8 @@ def train_head(cfg: Config, device: str | None = None) -> dict:
     print(f"[treino] melhor {sel_name}={best_sel:.3f} (ep {best_epoch}) -> {out/'siamese_head.pt'}")
     # retorno rico p/ grid_search ranquear SEM tocar o teste (anti-snooping): metricas de VAL.
     return {"best_sel": best_sel, "sel_name": sel_name, "best_epoch": best_epoch,
-            "best_metrics": best_metrics, "history": history}
+            "best_metrics": best_metrics, "history": history,
+            "selection_fellback_to_val_ap": selection_fellback}
 
 
 def load_model(ckpt_path: Path, device: str = "cpu") -> SiameseNet:

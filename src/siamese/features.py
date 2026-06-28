@@ -1,6 +1,6 @@
 """Extracao e cache de embeddings DINOv2.
 
-FONTE DA VERDADE = data/processed/. O modelo treina/valida/testa SOBRE o que esta
+FONTE DA VERDADE = data/processed_v3/ (default). O modelo treina/valida/testa SOBRE o que esta
 materializado em processed/<split>/<fonte>/<categoria>/ — incluindo correcoes/ajustes
 manuais feitos nessa pasta. `scan_processed` varre a arvore e deriva (split, fonte,
 categoria, label) do CAMINHO e os metadados (form factor, orientacao, ticket/grupo) do
@@ -14,7 +14,7 @@ Cache: artifacts/embeddings/<split>.npz (reais) e <split>_synth.npz (sinteticos)
   label [N]    int64     (0=clean, 1=erro)
   category [N] <U...     (slug da categoria)
   group [N]    <U...     (ticket, para amostragem sem vazamento)
-  path  [N]    <U...     (caminho ABSOLUTO em data/processed/)
+  path  [N]    <U...     (caminho ABSOLUTO no dataset processado)
   kind, form_factor, orientation, source [N] <U...
   (sinteticos: + applied [N] <U... e parent [N] <U...)
 """

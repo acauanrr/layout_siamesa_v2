@@ -72,7 +72,7 @@ train:
   # confound (val_synth, metrica de producao). Ver opcoes em src/siamese/config.py.
   early_stop_metric: val_synth_gate
   max_oversample_per_class: 12  # teto de copias/classe por epoca (Fase 4.4: limita superamostragem
-                                # das classes raras orientation/distortion). 0 = sem teto.
+                                # das classes raras, ex. disordered_layout). 0 = sem teto.
   patience: 80             # early-stop sobre o gate livre de confound (val_synth)
 
 decision:

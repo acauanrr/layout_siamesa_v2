@@ -20,8 +20,8 @@ class Paths:
 class BackboneCfg:
     model_name: str = "vit_small_patch14_dinov2.lvd142m"
     size: int = 518
-    use_patch_stats: bool = False
-    preprocess: str = "resize"        # "resize" (anamorfico) | "pad" (cinza preservando aspecto)
+    use_patch_stats: bool = True      # VALIDADO: CLS+mean+std dos patches (1152-d), melhor p/ erro espacial
+    preprocess: str = "pad"           # VALIDADO: "pad" (cinza preservando aspecto) | "resize" (anamorfico)
     batch_size: int = 16
 
 
@@ -45,20 +45,20 @@ class SyntheticCfg:
     p_reflow_pos: float = 0.0          # LEGADO/ablacao: fracao de erros sinteticos injetados
                                        # SOBRE um layout reflowado (impede atalho "layout mudou
                                        # => erro"). No legado deu resultado NEGATIVO -> default OFF.
-    benign_augment: bool = False       # round-trip de resolucao + jitter foto-metrico nas limpas
-                                       # (remove o atalho de nitidez/resolucao; opcional)
+    benign_augment: bool = True        # VALIDADO: round-trip de resolucao + jitter foto-metrico nas
+                                       # limpas (remove o atalho de nitidez/resolucao)
 
 
 @dataclass
 class HeadCfg:
     hidden: int = 256
-    proj_dim: int = 128
+    proj_dim: int = 64                # VALIDADO (grid + 1-SE multi-seed): cabeca menor generaliza melhor
     p_drop: float = 0.3
 
 
 @dataclass
 class TrainCfg:
-    epochs: int = 300
+    epochs: int = 500             # teto alto; o early-stop (patience) decide quando parar
     lr: float = 1e-3
     weight_decay: float = 1e-4
     batch_size: int = 128
@@ -83,18 +83,18 @@ class TrainCfg:
     #   val_cat_f1            so a clusterizacao por categoria (Estagio 2)
     early_stop_metric: str = "val_synth_gate"
     max_oversample_per_class: int = 0  # teto de repeticoes/classe por epoca no sampler (0 = sem teto)
-    patience: int = 40
+    patience: int = 80
 
 
 @dataclass
 class DecisionCfg:
-    k_prototypes: int = 1
+    k_prototypes: int = 3
     gate_method: str = "prototype" # decisor do GATE (Estagio 1): "prototype" (k-means do cluster
                                    # limpo) | "knn" (vizinhos mais proximos as limpas de treino —
                                    # melhor p/ manifold limpo multimodal). A fusao com a cabeca aux
                                    # e a calibracao do limiar sao identicas nos dois.
     knn_k: int = 5                 # k dos decisores k-NN (gate e/ou Estagio 2), quando ativos
-    objective: str = "f1"          # "f1" = ponto balanceado (padrao p/ acuracia/comparacao)
+    objective: str = "specificity" # VALIDADO specificity-first. "f1" = ponto balanceado (comparacao)
                                    # "precision" = alta precisao (usa target_precision)
                                    # "specificity" = ponto specificity-first (usa target_specificity)
     target_precision: float = 0.95
@@ -108,13 +108,13 @@ class DecisionCfg:
     #       sintetica). Cai para "real_val" se as sondas sinteticas nao existirem.
     #   "real_val" (legado): so a val real (26 limpas + erros reais) — ponto de operacao instavel.
     calibrate_on: str = "confound_free"
-    stage2_method: str = "prototype"   # decisor CANONICO do Estagio 2 (categoria): "prototype"
+    stage2_method: str = "knn"         # decisor CANONICO do Estagio 2 (VALIDADO jun/2026): "knn"|"prototype"
                                        # (protótipo de categoria no espaco z) | "knn" (k-NN aos
                                        # erros de treino por categoria) | "aux" (argmax da cabeca
                                        # aux). Os demais viram diagnostico/ablacao em evaluate.py.
-    coarse_taxonomy: bool = True       # avalia o Estagio 2 TAMBEM na taxonomia grossa (3 super-
-                                       # classes por nao-colisao) — reportada como PRIMARIA por ter
-                                       # poder estatistico; a fina (6 classes) vira secundaria.
+    coarse_taxonomy: bool = True       # avalia o Estagio 2 TAMBEM na taxonomia grossa (2 super-classes
+                                       # de erro por nao-colisao) — reportada como PRIMARIA por ter
+                                       # poder estatistico; a fina (4 classes) vira secundaria.
 
 
 @dataclass
@@ -136,7 +136,7 @@ class Config:
         return Config(
             seed=raw.get("seed", 42),
             val_frac=raw.get("val_frac", 0.15),
-            test_frac=raw.get("test_frac", 0.15),
+            test_frac=raw.get("test_frac", 0.24),
             paths=Paths(**raw.get("paths", {})),
             backbone=BackboneCfg(**raw.get("backbone", {})),
             synthetic=SyntheticCfg(**raw.get("synthetic", {})),

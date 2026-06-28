@@ -3,8 +3,8 @@
 
 Classificadores SIMPLES de categoria sobre as features DINOv2 CRUAS (sem a cabeca siamesa),
 para responder honestamente: o decisor por PROTOTIPO no espaco aprendido (z) supera um
-baseline trivial nas mesmas features congeladas? Reporta F1-macro nas taxonomias FINA (6
-classes) e GROSSA (3 super-classes), comparavel ao bloco `estagio2_categoria` do
+baseline trivial nas mesmas features congeladas? Reporta F1-macro nas taxonomias FINA (4
+classes) e GROSSA (2 super-classes), comparavel ao bloco `estagio2_categoria` do
 evaluation_report (oraculo = todas as imagens de erro classificadas).
 
 DEV-only: treina em train (erros reais), avalia em val (erros reais). NAO toca o teste

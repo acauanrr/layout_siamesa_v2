@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Gera a SONDA SINTETICA LIVRE DE CONFOUND (val/test) a partir das telas LIMPAS de
-data/processed/ — usada pela metrica honesta de deteccao em evaluate.py.
+data/processed_v3/ — usada pela metrica honesta de deteccao em evaluate.py.
 
-FONTE DA VERDADE = data/processed/. As limpas vem de processed/{val,test}/real/clean/ (as
+FONTE DA VERDADE = data/processed_v3/. As limpas vem de <processed>/{val,test}/real/clean/ (as
 mesmas que entram em val.npz/test.npz). Injeta erros nelas (mesma resolucao/device) -> mede
 deteccao de CONTEUDO de erro sem o confound de resolucao.
 

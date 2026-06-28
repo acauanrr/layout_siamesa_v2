@@ -65,7 +65,7 @@ def extract_synthetic(
 ) -> dict:
     """Gera embeddings sinteticos rotulados a partir de imagens LIMPAS.
 
-    Fonte das limpas: `clean_rows` (lista de {'path': ...}, p/ ler de data/processed/) se
+    Fonte das limpas: `clean_rows` (lista de {'path': ...}, p/ ler do dataset processado) se
     fornecido; senao filtra label==0 de `train_csv` (legado, data/input/).
 
     multiclass=True (PADRAO): injeta UM unico tipo por imagem (n_errors=1), restrito aos
