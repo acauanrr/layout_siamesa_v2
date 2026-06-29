@@ -44,6 +44,13 @@ padding** nas estatísticas de patch impede que a borda cinza vire pista.
 > AUROC **livre de confound (0.72)** é *maior* que o real (0.60) — o inverso de um trapaceiro. Detalhe
 > e as 6 provas em [`docs/RELATORIO_FINAL_PROCESSED_V3.md`](docs/RELATORIO_FINAL_PROCESSED_V3.md).
 
+> **Atualização (jun/2026 — Fases 2–3, ver [`docs/ROADMAP.md`](docs/ROADMAP.md)):** o confound foi
+> **quebrado na origem** coletando telas limpas diversas multi-resolução (download-only:
+> `scripts/fetch_clean_extra.py` → `merge_clean_extra.py` → `data/processed_v3_plus`). A regra trivial
+> de resolução caiu de **1.000 → 0.661**; com o backbone `vit_large_patch14_reg4_dinov2` o **AUROC
+> livre-de-confound subiu 0.72 → 0.80** e o **gap treino→teste caiu 0.40 → 0.18**. Pipeline reprodutível
+> em `configs/plus_L_reg4.yaml`; resultado estável em multi-seed.
+
 ## Resultados (teste held-out · `processed_v3`)
 
 Teste = **108 imagens** (41 limpas + 67 erros), avaliado **uma única vez** após congelar a config

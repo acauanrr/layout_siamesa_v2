@@ -23,9 +23,10 @@ Saidas para a apresentacao:
     artifacts/reports/confusion_matrix.png      <- matriz de confusao (gate, teste)
     artifacts/reports/confusion_matrix_categoria.png  <- matriz por categoria (Estagio 2)
 
-IMPORTANTE (comparacao justa): este dataset tem um CONFOUND de resolucao (toda tela limpa e'
-2076x2152). A regra trivial "resolucao != 2076x2152" sozinha da AUROC ~0.99. Logo, a metrica
-GLOBAL e' ~98% trapaca. O relatorio mostra as metricas-padrao (p/ a tabela comparativa) E as
+IMPORTANTE (comparacao justa): este dataset PODE ter um CONFOUND de resolucao (limpas
+concentradas em poucas resolucoes de device). A regra trivial "resolucao nao-canonica => erro"
+sozinha da AUROC = baseline_resolucao_trivial (~1.0 = confound forte; ~0.5 = quebrado). Quando
+alta, a metrica GLOBAL e' majoritariamente trapaca. O relatorio mostra as metricas-padrao E as
 metricas LIVRES DE CONFOUND (as honestas) E um VEREDITO automatico de "funciona ou nao".
 """
 from __future__ import annotations
@@ -334,10 +335,10 @@ detected = **{worst_det or '—'}** · best **classified** = **{best_cls or '—
 
 ## ⚠️ How to read these numbers (READ BEFORE COMPARING)
 
-This dataset has a **resolution confound**: **every** clean screen is 2076×2152 (a single device).
-The trivial rule *"resolution ≠ 2076×2152 ⇒ error"* alone gives **AUROC {_f(res_trivial)}** — without
-looking at the layout. **So the GLOBAL metric is ~98% confound.** For a **fair** comparison with other
-models:
+This dataset may carry a **resolution confound** (clean screens concentrated at few device
+resolutions). The trivial rule *"non-canonical resolution ⇒ error"* alone gives **AUROC {_f(res_trivial)}**
+— without looking at the layout (**≈1.0 = strong confound; ≈0.5 = broken**). When this is high, the
+GLOBAL metric is mostly confound. For a **fair** comparison with other models:
 - **DO NOT** lead with global accuracy/AUROC (a naive model "wins" by exploiting the device).
 - **LEAD** with the **confound-free** metrics (§2) and check whether the competitor beats the
   **confound baseline** (§3).

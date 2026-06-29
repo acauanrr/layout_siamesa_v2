@@ -384,4 +384,18 @@ Seleção na val: L_reg4 `val_synth_gate` 0.857 / `val_cat_f1` 0.576 > B_reg4 0.
 o backbone reg4/large sobe o teto (0.77→**0.80**) e fecha o gap (0.24→**0.18**). Estágio-2 fina no
 teste ~estável (knn 0.40) — limitada pelo suporte por classe (`disordered_layout` n=10) e clean
 cross-domain; mais dados + **near-square** (Fase 2.b) é o que falta p/ gap<0.15.
+
+### Resultados — Fase 4 (consolidação + estabilidade, jun/2026)
+
+**Estabilidade multi-seed** (`scripts/multiseed_stability.py`, 5 seeds, L_reg4+plus, `val_synth_gate`):
+proj64 **0.860 ± 0.001** (std 0.001 — rock-solid), proj128 0.865 ± 0.002, proj256 0.861 ± 0.003,
+proj32 0.860 ± 0.003. **O ganho é ESTÁVEL, não sorte de seed** (todos ~0.86 ± ~0.005). O `proj_dim`
+está no ruído; mantido **proj64** (mais parcimonioso e de MENOR variância). Logo o headline
+(AUROC livre-confound **~0.80** no teste; `val_synth_gate` ~0.86) é reprodutível.
+
+Template do relatório (`run_experiment.py`) corrigido: a prosa hardcoded "toda clean é 2076×2152 /
+~98% confound" virou **dinâmica** (usa `baseline_resolucao_trivial`: ~1.0 = confound forte; ~0.5 =
+quebrado) — honesta p/ o baseline E p/ o plus. **Config consolidada = `configs/plus_L_reg4.yaml`**
+(dados `processed_v3_plus` via `fetch_clean_extra`+`merge_clean_extra`; backbone L_reg4).
+Pendente p/ Fase 5: atualizar RELATORIO_FINAL/DESIGN/README com os números novos.
 ```
