@@ -398,4 +398,32 @@ Template do relatório (`run_experiment.py`) corrigido: a prosa hardcoded "toda 
 quebrado) — honesta p/ o baseline E p/ o plus. **Config consolidada = `configs/plus_L_reg4.yaml`**
 (dados `processed_v3_plus` via `fetch_clean_extra`+`merge_clean_extra`; backbone L_reg4).
 Pendente p/ Fase 5: atualizar RELATORIO_FINAL/DESIGN/README com os números novos.
-```
+
+### Resultados — Experimento consolidado `processed_v4_plus` (jun/2026)
+
+Reexecução completa do pipeline (`run_experiment.py` + `report_processed_v3.py`) em
+`data/processed_v3_plus` com a config consolidada `plus_L_reg4.yaml`, reunindo **todas** as métricas
+pedidas (treino **e** teste) em `artifacts/reports/processed_v4_plus/` (commit `efe19a0`). **Reproduz**
+os números das Fases 3–4 (held-out AUROC livre-confound **0.802** / AP 0.940; gate protótipo 0.751 /
+fusão 0.691; coarse F1 0.671; fina 0.401) — estável, sem surpresas.
+
+**Gate erro vs sem-erro (matrizes binárias treino + teste):**
+
+| split | Acc | Precisão | Recall | F1 | AUROC | TP/TN/FP/FN |
+|---|---:|---:|---:|---:|---:|---|
+| Treino (in-sample) | 0.767 | 0.624 | 0.792 | 0.698 | 0.873 | 133/245/80/35 |
+| **Teste (held-out)** | 0.619 | 0.463 | 0.657 | 0.543 | 0.691 | 44/76/51/23 |
+
+**Categoria 5 classes (clean + 4 erros):** teste acc 0.505 / F1-macro 0.327 / AUROC-macro 0.596;
+treino 0.753 / 0.742 / 0.916. **Por classe (fim-a-fim, teste):** melhor = **`black_bars`** (AUROC 0.783,
+F1 0.533, n=22); pior = **`disordered_layout`** (classificação **0.00**, n=10 — o gate detecta ~60% mas
+a categoria não é atribuída). Decomposição detecção×classificação e métricas livre-confound completas
+no `README_processed_v4_plus.md` / `EXPERIMENT_RESULTS.md`.
+
+**Entregáveis** (`artifacts/reports/processed_v4_plus/`): `clusters_treino.html` / `clusters_teste.html`
+(plotly interativo), `confusion_matrix_binaria_{treino,teste}.png`,
+`confusion_matrix_categoria_{treino,teste}.png`, `metricas_por_classe.{png,json}`,
+`per_class_metrics_en.png`, `evaluation_report_heldout.json`, `README_processed_v4_plus.md`.
+**`report_processed_v3.py` ganhou `--out`/`--label`** (retrocompatível) p/ direcionar a saída. O
+experimento **reconfirma** o pendente OPCIONAL **Fase 2.b** (near-square) como o caminho p/ tirar
+`disordered_layout` do zero e fechar o gap treino→teste <0.15.
