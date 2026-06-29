@@ -280,13 +280,18 @@ def cluster_htmls(out_dir: Path, xy_tr, cat_tr, names_tr, xy_te, cat_te, names_t
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
+    ap.add_argument("--out", type=Path, default=None,
+                    help="diretorio de saida (default: <reports_dir>/processed_v3)")
+    ap.add_argument("--label", type=str, default="processed_v3",
+                    help="nome do dataset exibido no RELATORIO e usado no nome do .md")
     args = ap.parse_args()
     cfg = Config.load(args.config)
     allow_test_access(True)                        # analise post-hoc do modelo congelado
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     emb = Path(cfg.paths.emb_dir)
-    out_dir = Path(cfg.paths.reports_dir) / "processed_v3"; out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = args.out if args.out is not None else Path(cfg.paths.reports_dir) / "processed_v3"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     model = load_model(Path(cfg.paths.models_dir) / "siamese_head.pt", device=device)
     dn = np.load(Path(cfg.paths.models_dir) / "decision.npz", allow_pickle=True)
@@ -400,7 +405,7 @@ def main():
         "limiar_gate": thr, "categorias": CATS,
     }
     (out_dir / "metricas_por_classe.json").write_text(json.dumps(flat, indent=2, ensure_ascii=False))
-    _write_md(out_dir, flat)
+    _write_md(out_dir, flat, label=args.label)
     print("OK — artefatos gerados:")
     for p in sorted(out_dir.iterdir()):
         print("  ", p.name)
@@ -413,7 +418,7 @@ def _f(v, n=2):
         return "—"
 
 
-def _write_md(out_dir: Path, flat: dict):
+def _write_md(out_dir: Path, flat: dict, label: str = "processed_v3"):
     b_tr, b_te = flat["binaria"]["treino"], flat["binaria"]["teste"]
     c_tr, c_te = flat["categoria_5classes"]["treino"], flat["categoria_5classes"]["teste"]
     pc = flat["por_classe_teste"]
@@ -422,7 +427,7 @@ def _write_md(out_dir: Path, flat: dict):
         v = pc[name]
         rows += (f"| `{name}` | {v['suporte']} | {_f(v['precisao'])} | {_f(v['recall'])} | "
                  f"{_f(v['f1'])} | {_f(v['auroc'])} | {_f(v['acuracia_ovr'])} |\n")
-    md = f"""# Relatório visual — `processed_v3` (setup principal)
+    md = f"""# Relatório visual — `{label}` (setup principal)
 
 Gerado por `scripts/report_processed_v3.py` a partir do modelo congelado (treino+teste completos).
 Teste = held-out ({flat['n_teste']} imagens); treino = in-sample ({flat['n_treino']}), mostrado só como referência.
@@ -468,7 +473,7 @@ Teste = held-out ({flat['n_teste']} imagens); treino = in-sample ({flat['n_trein
 
 *Números planos: `metricas_por_classe.json`.*
 """
-    (out_dir / "RELATORIO_processed_v3.md").write_text(md, encoding="utf-8")
+    (out_dir / f"RELATORIO_{label}.md").write_text(md, encoding="utf-8")
 
 
 if __name__ == "__main__":
