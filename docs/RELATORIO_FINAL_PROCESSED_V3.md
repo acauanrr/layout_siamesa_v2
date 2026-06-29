@@ -5,6 +5,16 @@
 > (plano + `labels.csv`). Teste held-out avaliado **1×** após congelar a config. Números reproduzidos
 > de ponta a ponta (`scripts/run_experiment.py`), determinísticos.
 
+> **🔄 Atualização (jun/2026 — Fases 2–4, ver [`ROADMAP.md`](ROADMAP.md)):** o confound foi
+> **quebrado na origem**. Coletando telas limpas diversas multi-resolução (download-only:
+> `fetch_clean_extra.py` → `merge_clean_extra.py` → `data/processed_v3_plus`, clean **172 → 532**) e
+> trocando o backbone congelado por `vit_large_patch14_reg4_dinov2`, no held-out: a regra trivial de
+> resolução caiu **1.000 → 0.661**; o **AUROC livre-de-confound subiu 0.721 → 0.802** (estável em
+> multi-seed: 0.86 ± 0.001 na val); o **gap treino→teste caiu 0.40 → 0.18**; e a falseabilidade —
+> *degenerada* no baseline — passa limpo (erro 0.69 vs resolução 0.50). Config reprodutível:
+> `configs/plus_L_reg4.yaml`. **O relatório abaixo é o baseline `processed_v3` — o "antes", ainda
+> válido como referência honesta.**
+
 ---
 
 ## 0. Veredito (TL;DR)

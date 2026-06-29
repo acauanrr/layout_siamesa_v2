@@ -8,6 +8,15 @@ que muda tudo — o **confound de resolução** —, (3) justifica o design impl
 resultados honestos medidos em `data/processed_v3`. Números atuais em
 [`RELATORIO_FINAL_PROCESSED_V3.md`](RELATORIO_FINAL_PROCESSED_V3.md); diagrama em [`pipeline.mmd`](pipeline.mmd).
 
+> **🔄 Atualização (jun/2026 — Fases 2–4, ver [`ROADMAP.md`](ROADMAP.md)):** ao design abaixo somaram-se
+> duas alavancas, **sem mudar o núcleo**: (1) **ingestão de telas limpas públicas multi-resolução**
+> (`fetch_clean_extra.py` + `merge_clean_extra.py`) que QUEBRA o confound na origem — cada limpa nova
+> gera também erros sintéticos casados na mesma resolução; (2) **backbone maior com registers**
+> (`vit_large_patch14_reg4_dinov2`; `backbone.py` agora pula `num_prefix_tokens` nas stats de patch).
+> Resultado: AUROC livre-de-confound 0.72 → **0.80**, gap treino→teste 0.40 → **0.18** (estável
+> multi-seed). O caminho **binário legado** (`multiclass=false`) segue funcional e marcado `LEGADO`
+> (mantido como fallback documentado, não removido).
+
 ---
 
 ## 1. Resumo executivo (leia primeiro)
