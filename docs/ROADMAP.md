@@ -448,5 +448,24 @@ restrito a um domínio (near-square / form-factor / v3test) reusando `evaluate(f
    Infra mantida (default OFF, testada); experimento revertido.
 
 **Conclusão:** a única alavanca que move o domínio foldable é **dado foldable REAL** (Fase 2.b / Spec).
-Próximo passo de código já iniciado: `merge_clean_extra.py` carregar `form_factor` real (destrava o
-subconjunto controlado) + split por grupo (anti-vazamento). Ver §4.2 da spec.
+
+#### Fase 2.b — CABEADA ✅ (tooling pronto e testado; falta só a coleta) — commits `86c0964` · `58baa0a` · `9925bd5`
+
+Todo o pipeline foldable está implementado e testado (**63 testes verdes**); o único pendente é a
+**coleta de dados** (passo 1, requer emulador/device):
+
+| Peça | Estado |
+|---|---|
+| `scripts/capture_foldable.py` — captura via adb/`--from-file`, `batch`, `audit` | ✅ pronto + testado |
+| `data/fold_plan.csv` — plano exemplo (52 capturas, 33 telas, 19 apps, 4 postures) | ✅ |
+| `merge_clean_extra.py` (§4.2) — `form_factor` real (destrava o controlado) + split por grupo | ✅ testado ponta a ponta |
+| `scripts/domain_slice_eval.py` — fatia foldable-only (critério de aceite §5) | ✅ reproduz o cross-eval |
+| `configs/plus_fold_L_reg4.yaml` — config do passo 3 (L_reg4, emb/reports próprios) | ✅ |
+| **Coleta** — `capture_foldable.py batch` no emulador/device → ≥50 telas, 4 postures | ⬜ **pendente** |
+
+**Decisão de método:** construir SOBRE o `processed_v3_plus` (mantém o de-confounding do pool público)
++ foldable → `processed_v3_plus_fold`; NÃO sobre o v3 cru (clean ficaria todo near-square → confound
+poderia voltar). Execução pronta (spec [§7](SPEC_COLETA_FOLDABLE.md)): coletar → `merge_clean_extra
+--src data/processed_v3_plus --extra data/clean_extra_fold --dest data/processed_v3_plus_fold` →
+`run_experiment --config configs/plus_fold_L_reg4.yaml` → `domain_slice_eval --subset form-factor`.
+**Gate de aceite: a especificidade foldable tem que sair de 0.512.**
