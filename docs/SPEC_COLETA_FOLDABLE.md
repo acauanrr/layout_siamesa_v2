@@ -181,16 +181,20 @@ para clean foldable + erros). Isola o ganho no domínio de produção — não d
 ## 7. Ordem de execução
 
 ```
-[✓] scripts/capture_foldable.py  -> ferramenta pronta (capture via adb/--from-file, batch, audit)
-[✓] merge_clean_extra.py (§4.2)  -> form_factor real + split por grupo (testado ponta a ponta)
-[✓] scripts/domain_slice_eval.py -> fatia foldable-only (criterio de aceite §5)
+[✓] scripts/capture_foldable.py    -> ferramenta pronta (capture via adb/--from-file, batch, audit)
+[✓] data/fold_plan.csv             -> plano exemplo (52 capturas, 33 telas, 4 postures) p/ o `batch`
+[✓] merge_clean_extra.py (§4.2)    -> form_factor real + split por grupo (testado ponta a ponta)
+[✓] scripts/domain_slice_eval.py   -> fatia foldable-only (criterio de aceite §5)
+[✓] configs/plus_fold_L_reg4.yaml  -> config do passo 3 (L_reg4, emb/reports proprios)
 
-1. capture_foldable.py (emulador foldable + device físico) → data/clean_extra_fold/  [O GROSSO — coleta]
-   - capture/batch p/ ≥300 imgs, ≥50 telas, ≥4 postures; `audit` mostra o progresso vs metas §1.1
-2. merge_clean_extra.py --extra data/clean_extra_fold --dest data/processed_v3_fold --apply
-3. config fold (L_reg4, emb/reports próprios) → run_experiment.py --processed data/processed_v3_fold
-4. domain_slice_eval.py --subset form-factor --form-factors unfold,fold,tent,laptop
-   → gate §5: especificidade foldable TEM que sair de 0.512
+1. capture_foldable.py batch --device <dev> --plan data/fold_plan.csv → data/clean_extra_fold/
+   [O GROSSO — coleta] ≥300 imgs, ≥50 telas, ≥4 postures; `audit` mostra o progresso vs §1.1
+2. merge_clean_extra.py --src data/processed_v3_plus --extra data/clean_extra_fold \
+       --dest data/processed_v3_plus_fold --apply
+   (SOBRE o plus, NAO o v3 cru -> mantem o de-confounding do pool publico + adiciona foldable)
+3. run_experiment.py --config configs/plus_fold_L_reg4.yaml --processed data/processed_v3_plus_fold
+4. domain_slice_eval.py --config configs/plus_fold_L_reg4.yaml --subset form-factor \
+       --form-factors unfold,fold,tent,laptop   → gate §5: especificidade foldable TEM que sair de 0.512
 5. se passar: atualizar ROADMAP/RELATORIO_FINAL com a 1ª acurácia real honesta; congelar config
 ```
 
