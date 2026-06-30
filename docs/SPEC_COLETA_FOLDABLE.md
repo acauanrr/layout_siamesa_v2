@@ -93,7 +93,8 @@ Resoluções/AR dos erros (medido em `processed_v3_plus`, n=1577; mediana AR **0
 
 ## 3. Protocolo de captura
 
-Para cada **(device/AVD × app × tela)** — cada combinação é **1 grupo**:
+Cada **(app × tela)** é **1 grupo** (identidade de CONTEÚDO); capture-o em ≥2 postures × 2
+orientações × ≥1 device — todas essas variações ficam no mesmo grupo (→ mesmo split):
 1. Navegar até uma tela **limpa, completa, sem erro** (conteúdo carregado, sem loading/placeholder).
 2. Capturar em **≥ 2 postures** quando aplicável (unfold + fold; +tent/laptop se houver) e **2 orientações**.
 3. Salvar **PNG nativo** (sem redimensionar, sem moldura de device, sem barra do emulador).
@@ -114,7 +115,10 @@ A foldable entra pelo mesmo caminho do pool público — `data/clean_extra/` →
 
 ### 4.1 Manifesto estendido (`labels_extra.csv` / novo `capture_foldable.py`)
 Schema atual = `path, source, w, h, aspect, group, phash`. **Adicionar**: `form_factor` (unfold/fold/tent/
-laptop), `orientation` (portrait/landscape), `device`. (O `group` deve ser `device:app:screen`, não 1-por-imagem.)
+laptop), `orientation` (portrait/landscape), `device`. **`group` = `fold:<app>:<screen>`** — identidade
+de CONTEÚDO (device-independente): o mesmo conteúdo, em qualquer device/posture/orientação, cai no MESMO
+split → anti-vazamento mais forte que `device:app:screen`. `device` fica em coluna própria (estratificação).
+Já implementado em **`scripts/capture_foldable.py`** (passo 1 da §7).
 
 ### 4.2 `scripts/merge_clean_extra.py` — usar o posture real (hoje hardcoda `"external"`)
 - **L136**: `form_factor: "external"` → **ler do manifesto** (`r.get("form_factor") or "external"`); idem
@@ -170,19 +174,28 @@ para clean foldable + erros). Isola o ganho no domínio de produção — não d
 | Marketing com molduras/overlay → ruído de rótulo / colisão de classe | cortar para a tela, **sem overlay**; curar; preferir A/B |
 | Coletar muito de poucos apps → confound de conteúdo (lição do #1) | teto ~8 telas/app; **≥ 40 apps**; estratificar |
 | Foldable só no train | forçar val ≥ 20 / test ≥ 40 **nas resoluções dos erros** (§4.2) |
-| Vazamento de grupo (postures da mesma tela em splits diferentes) | **split por grupo** `device:app:screen` (§4.2) + asserção existente |
+| Vazamento de grupo (postures/devices da mesma tela em splits diferentes) | **split por grupo** `fold:<app>:<screen>` (conteúdo, §4.2) + asserção existente |
 
 ---
 
 ## 7. Ordem de execução
 
 ```
-1. capture_foldable.py (emulador A + device B) → data/clean_extra_fold/ + labels_extra estendido  [o grosso]
-2. patch merge_clean_extra.py (§4.2: form_factor real + split por grupo) → data/processed_v3_fold
+[✓] scripts/capture_foldable.py  -> ferramenta pronta (capture via adb/--from-file, batch, audit)
+[✓] merge_clean_extra.py (§4.2)  -> form_factor real + split por grupo (testado ponta a ponta)
+[✓] scripts/domain_slice_eval.py -> fatia foldable-only (criterio de aceite §5)
+
+1. capture_foldable.py (emulador foldable + device físico) → data/clean_extra_fold/  [O GROSSO — coleta]
+   - capture/batch p/ ≥300 imgs, ≥50 telas, ≥4 postures; `audit` mostra o progresso vs metas §1.1
+2. merge_clean_extra.py --extra data/clean_extra_fold --dest data/processed_v3_fold --apply
 3. config fold (L_reg4, emb/reports próprios) → run_experiment.py --processed data/processed_v3_fold
-4. cross-eval harness + fatia foldable-only → checar gates §5 (especificidade foldable É o número)
+4. domain_slice_eval.py --subset form-factor --form-factors unfold,fold,tent,laptop
+   → gate §5: especificidade foldable TEM que sair de 0.512
 5. se passar: atualizar ROADMAP/RELATORIO_FINAL com a 1ª acurácia real honesta; congelar config
 ```
+
+> **Estado:** os 3 itens de infra/tooling estão prontos e testados. **Falta só o passo 1 — a coleta de
+> dados** (operador rodando `capture_foldable.py`), que é a etapa que requer o emulador/device.
 
 **Resumo de uma linha:** colete **conteúdo foldable real, diverso em apps e postures, em val/test nas
 resoluções dos erros** — é a única alavanca que tira a especificidade foldable de 0.512, provado por A/B.
