@@ -427,3 +427,26 @@ no `README_processed_v4_plus.md` / `EXPERIMENT_RESULTS.md`.
 **`report_processed_v3.py` ganhou `--out`/`--label`** (retrocompatível) p/ direcionar a saída. O
 experimento **reconfirma** o pendente OPCIONAL **Fase 2.b** (near-square) como o caminho p/ tirar
 `disordered_layout` do zero e fechar o gap treino→teste <0.15.
+
+### Resultados — Cross-eval + experimento #1 + Spec da Fase 2.b (jun/2026)
+
+**Fase 2.b deixa de ser "OPCIONAL" e passa a ser a restrição que prende o domínio de produção** —
+provado por dois experimentos. Spec executável: [`docs/SPEC_COLETA_FOLDABLE.md`](SPEC_COLETA_FOLDABLE.md).
+Ferramenta de medida (critério de aceite): **`scripts/domain_slice_eval.py`** — avalia o held-out
+restrito a um domínio (near-square / form-factor / v3test) reusando `evaluate(final_test=True)`.
+
+1. **Cross-eval (modelo `plus+L_reg4` → test do `v3`, 41 clean near-square + 67 erros; 0 vazamento):**
+   no domínio foldable o headline NÃO se confirma — free-confound **0.731** (vs 0.802 no plus-test;
+   vs 0.721 do baseline = +0.01, ruído), especificidade **0.512** (20 FP/41). O 0.802 vem de clean
+   **diversas** (phone/desktop), que não são o domínio de produção. Rodar no v3-test é a **avaliação
+   desonesta abandonada** (confound trivial volta a 1.000; precisão infla por base-rate) — não reportar.
+2. **Experimento #1 (reflow/síntese near-square AR — flag `synthetic.reflow_match_error_ar`, default OFF):**
+   mirar o AR dos erros (mediana 0.96) em vez de `U(0.5,2.0)`. **Resultado NEGATIVO no alvo:**
+   especificidade foldable **0.512 → 0.512** (os MESMOS 20 FP); só melhorou clean diversas
+   (0.640 → 0.709) e regrediu a métrica-guia (0.802 → 0.776). **Prova que o gap é CONTEÚDO, não
+   aspecto/resolução** — síntese de AR a partir de conteúdo phone/desktop não cobre o conteúdo foldable.
+   Infra mantida (default OFF, testada); experimento revertido.
+
+**Conclusão:** a única alavanca que move o domínio foldable é **dado foldable REAL** (Fase 2.b / Spec).
+Próximo passo de código já iniciado: `merge_clean_extra.py` carregar `form_factor` real (destrava o
+subconjunto controlado) + split por grupo (anti-vazamento). Ver §4.2 da spec.

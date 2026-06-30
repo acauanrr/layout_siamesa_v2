@@ -5,7 +5,8 @@ processed_v3 original fica intacto, p/ comparacao baseline-vs-plus).
 
 O que faz:
   - copia TODOS os reais do processed_v3 (mantem os splits existentes -> comparabilidade);
-  - particiona as limpas novas em train/val/test (grupo atomico = 1 imagem; fracs configuraveis).
+  - particiona as limpas novas em train/val/test POR GRUPO (group=device:app:screen; o pool publico
+    usa 1 img/grupo; o capture foldable agrupa postures/orientacoes da mesma tela -> anti-vazamento);
     train -> expande o manifold limpo (generalizacao); val/test -> limpas em OUTRAS resolucoes
     (de-confound: o held-out passa a ter limpo E erro compartilhando faixa de resolucao);
   - REGENERA train/synthetic INTEIRO a partir de TODAS as limpas de treino (orig + novas), p/ os
@@ -68,18 +69,27 @@ def main() -> None:
     extra = _read(args.extra / "labels_extra.csv")
     print(f"reais (processed_v3): {len(real_rows)} | limpas novas (pool): {len(extra)}")
 
-    # --- split agrupado das limpas novas (cada imagem = 1 grupo) ---
+    # --- split por GRUPO das limpas novas (anti-vazamento) ---
+    # Antes: 1 imagem = 1 split independente -> postures/orientacoes da MESMA tela (mesmo
+    # group=device:app:screen, capture foldable) podiam cair em splits diferentes (vazamento).
+    # Agora: grupos INTEIROS vao p/ um split, balanceando por nº de IMAGENS. Pool publico = 1
+    # img/grupo -> equivalente ao antigo. A asserção de vazamento (abaixo) garante a invariante.
     rng = random.Random(args.seed)
-    rng.shuffle(extra)
+    groups: dict[str, list] = defaultdict(list)
+    for r in extra:
+        groups[r["group"]].append(r)
+    gkeys = list(groups)
+    rng.shuffle(gkeys)
     tr_frac = max(0.0, 1.0 - args.val_frac - args.test_frac)
     targets = {"train": tr_frac, "val": args.val_frac, "test": args.test_frac}
     filled = {s: 0 for s in SPLITS}
-    n = max(1, len(extra))
-    for r in extra:
-        s = max(SPLITS, key=lambda k: targets[k] * n - filled[k])
-        r["_split"] = s
-        filled[s] += 1
-    print("limpas novas por split:", filled)
+    n_img = max(1, len(extra))
+    for gk in gkeys:
+        s = max(SPLITS, key=lambda k: targets[k] * n_img - filled[k])
+        for r in groups[gk]:
+            r["_split"] = s
+        filled[s] += len(groups[gk])
+    print(f"limpas novas por split: {filled} ({len(gkeys)} grupos)")
 
     # --- distribuicao alvo (reais por categoria x split) p/ o relatorio ---
     grid = defaultdict(lambda: defaultdict(int))
@@ -133,8 +143,14 @@ def main() -> None:
         src_file = args.extra.parent / r["path"]      # data/ + clean_extra/<source>/<fn>
         dst = args.dest / sp / "real" / name
         shutil.copy2(src_file, dst)
-        meta = {"form_factor": "external", "orientation": "portrait" if h >= w else "landscape",
-                "kind": "screenshot", "is_competitor": "", "has_boundbox": ""}
+        # form_factor/orientation: usa os do MANIFESTO (capture foldable popula unfold/fold/tent/
+        # laptop + portrait/landscape) e SO cai p/ "external"/heuristico h>=w quando ausentes (pool
+        # publico antigo). Sem o form_factor real, o subconjunto controlado (unfold/portrait/
+        # screenshot) em evaluate.py fica degenerado -> a metrica honesta de acuracia real nao nasce.
+        meta = {"form_factor": (r.get("form_factor") or "").strip() or "external",
+                "orientation": (r.get("orientation") or "").strip() or ("portrait" if h >= w else "landscape"),
+                "kind": (r.get("kind") or "").strip() or "screenshot",
+                "is_competitor": "", "has_boundbox": ""}
         add(f"{sp}/real/{name}", sp, "real", "clean", 0, r["group"], meta)
         if sp == "train":
             train_clean_files.append(dst)

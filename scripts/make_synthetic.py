@@ -23,7 +23,7 @@ import torch
 from siamese.config import Config
 from siamese.backbone import DinoV2Backbone, BackboneConfig
 from siamese.features import clean_rows
-from siamese.synth_features import extract_synthetic, extract_reflow_clean
+from siamese.synth_features import extract_synthetic, extract_reflow_clean, error_aspects
 
 
 def main() -> None:
@@ -65,6 +65,20 @@ def main() -> None:
     # negativos; val_reflow/test_reflow -> sondas de FALSO-POSITIVO (o gate NAO deve acender em
     # reflow). Anti-confound pelo lado limpo (ar_relayout tira a limpa de 2076x2152). Ver reflow.py.
     if cfg.synthetic.reflow_clean:
+        # Fase 2.4: mira a distribuicao de AR dos ERROS de TREINO (mediana near-square 0.96)
+        # para o ar_relayout em vez de aspecto aleatorio. Quebra o bucket near-square fraco.
+        targets = None
+        if getattr(cfg.synthetic, "reflow_match_error_ar", False):
+            targets = error_aspects(args.processed, split="train")
+            if targets:
+                import numpy as _np
+                _t = _np.array(targets)
+                ns = float(_np.mean((_t >= 0.85) & (_t <= 1.18)) * 100)
+                print(f"  reflow_match_error_ar=ON: {len(targets)} AR-alvo dos erros de treino "
+                      f"(mediana {float(_np.median(_t)):.2f}, near-square {ns:.0f}%)")
+            else:
+                print(f"  [AVISO] reflow_match_error_ar=ON mas 0 erros em {args.processed}/train "
+                      f"-> ar_relayout cai para aspecto aleatorio U(0.5,2.0).")
         for split, seed in [("train", cfg.synthetic.seed + 300),
                             ("val", cfg.synthetic.seed + 400),
                             ("test", cfg.synthetic.seed + 500)]:
@@ -79,6 +93,7 @@ def main() -> None:
                 max_reflow_ops=cfg.synthetic.max_reflow_ops,
                 benign=cfg.synthetic.benign_augment,
                 seed=seed, batch_size=cfg.backbone.batch_size,
+                target_aspects=targets,
             )
             print(f"  {split}: reflow-clean {info['n']} -> {info['out']} (de {args.processed} {split}/clean)")
     else:

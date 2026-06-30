@@ -47,6 +47,11 @@ class SyntheticCfg:
                                        # => erro"). No legado deu resultado NEGATIVO -> default OFF.
     benign_augment: bool = True        # VALIDADO: round-trip de resolucao + jitter foto-metrico nas
                                        # limpas (remove o atalho de nitidez/resolucao)
+    reflow_match_error_ar: bool = False  # Fase 2.4: ar_relayout mira a distribuicao de AR dos ERROS
+                                       # (mediana near-square 0.96) em vez de aspecto aleatorio
+                                       # U(0.5,2.0). Cobre o bucket near-square sub-representado
+                                       # (onde o modelo falso-alarmava nas limpas) e casa o confound
+                                       # nas resolucoes dos erros. Alvos = AR dos erros de TREINO.
 
 
 @dataclass

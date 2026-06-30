@@ -15,7 +15,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from siamese.reflow import (reflow_augment, REFLOW_OPS, DEFAULT_REFLOW_WEIGHTS, _FUNCS)
+from siamese.reflow import (reflow_augment, REFLOW_OPS, DEFAULT_REFLOW_WEIGHTS, _FUNCS,
+                            _ar_relayout)
 
 
 def _textured(w=320, h=400, seed=0):
@@ -78,6 +79,41 @@ def test_determinismo_por_seed():
     o1, a1 = reflow_augment(img, random.Random(42))
     o2, a2 = reflow_augment(img, random.Random(42))
     assert a1 == a2 and np.array_equal(np.asarray(o1), np.asarray(o2))
+
+
+def test_ar_relayout_mira_aspecto_alvo():
+    """Fase 2.4: com target_aspects, ar_relayout reescala a limpa para perto do AR-alvo (w/h).
+    Ex.: imagem 9:16 (phone, AR 0.5625) mirando near-square 0.96 deve sair ~near-square."""
+    img = _textured(w=450, h=800)                 # AR = 0.5625 (phone retrato)
+    ars = []
+    for s in range(40):
+        out = _ar_relayout(img, random.Random(s), target_aspects=[0.96])
+        w, h = out.size
+        ars.append(w / h)
+    med = float(np.median(ars))
+    assert 0.86 <= med <= 1.07, f"AR mediano {med:.3f} longe do alvo 0.96 (jitter ~6%)"
+    # e claramente diferente do AR original (0.56) -> de fato remapeou
+    assert med > 0.75, "nao remapeou para o alvo near-square"
+
+
+def test_ar_relayout_alvo_multiplo_cobre_distribuicao():
+    """Com varios alvos (distrib. de erro), as saidas espalham perto dos alvos pedidos."""
+    img = _textured(w=400, h=400)
+    targets = [0.45, 0.96, 1.78]                  # phone-retrato, near-square, desktop-paisagem
+    near_sq = 0
+    for s in range(60):
+        out = _ar_relayout(img, random.Random(s), target_aspects=targets)
+        w, h = out.size
+        if 0.85 <= w / h <= 1.18:
+            near_sq += 1
+    assert near_sq > 0, "nenhuma saida near-square apesar de 0.96 estar nos alvos"
+
+
+def test_ar_relayout_sem_alvo_mantem_comportamento_legado():
+    """Sem target_aspects, segue o aspecto aleatorio U(0.5,2.0) (retrocompat)."""
+    img = _textured(w=400, h=400)
+    sizes = {_ar_relayout(img, random.Random(s)).size for s in range(8)}
+    assert len(sizes) > 1, "deveria variar a resolucao aleatoriamente sem alvos"
 
 
 def test_ar_relayout_vai_por_ultimo():

@@ -73,17 +73,30 @@ def _two_pane(img: Image.Image, rng: random.Random) -> Image.Image:
     return Image.fromarray(np.concatenate([left, right], axis=1))
 
 
-def _ar_relayout(img: Image.Image, rng: random.Random) -> Image.Image:
+def _ar_relayout(img: Image.Image, rng: random.Random,
+                 target_aspects: list[float] | None = None,
+                 jitter: float = 0.06) -> Image.Image:
     """Render em outro aspect-ratio (cover <-> tela principal). MUDA as dimensoes do canvas;
     o pre-processamento 'pad' depois renderiza a diferenca de AR exatamente como os erros
     reais de AR distinto sao renderizados (padding cinza + mascara de patch) — sem padding
     interno falso que pudesse virar 'empty space'. Esta e' a operacao que tira a variante
-    limpa da resolucao 2076x2152 -> quebra o confound pelo lado limpo."""
+    limpa da resolucao 2076x2152 -> quebra o confound pelo lado limpo.
+
+    `target_aspects` (Fase 2.4 do ROADMAP): lista de AR-alvo (w/h) — tipicamente a distribuicao
+    dos ERROS reais (mediana near-square 0.96). Quando dada, sorteia um alvo + jitter leve e
+    reescala a limpa EXATAMENTE para esse AR, em vez do aspecto aleatorio U(0.5,2.0). Assim
+    P(AR | reflow-limpo) ~ P(AR | erro): cobre o bucket near-square sub-representado (onde o
+    modelo falso-alarmava) e mata o confound nas resolucoes onde os erros de fato vivem."""
     a = np.asarray(img)
     h, w = a.shape[:2]
     if min(h, w) < 64:
         return img.copy()
-    f = float(rng.uniform(0.5, 2.0))           # multiplicador no aspecto h/w
+    if target_aspects:
+        target = float(rng.choice(target_aspects))            # AR alvo (w/h) da distrib. de erro
+        target *= rng.uniform(1.0 - jitter, 1.0 + jitter)     # jitter: nao "decora" ARs exatos
+        f = (w / h) / max(target, 1e-3)                        # f reescala AR atual -> alvo (h/w)
+    else:
+        f = float(rng.uniform(0.5, 2.0))           # multiplicador no aspecto h/w (aleatorio)
     s = float(np.sqrt(f))
     nh = int(np.clip(round(h * s), 64, 2 * h))
     nw = int(np.clip(round(w / s), 64, 2 * w))
@@ -154,11 +167,13 @@ def _weighted_sample_no_replace(names: list[str], weights: list[float], k: int,
 
 def reflow_augment(img: Image.Image, rng: random.Random, *,
                    ops_weights: dict[str, float] | None = None,
-                   max_ops: int = 2) -> tuple[Image.Image, list[str]]:
+                   max_ops: int = 2,
+                   target_aspects: list[float] | None = None) -> tuple[Image.Image, list[str]]:
     """Compoe 1..max_ops mudancas de layout legitimas (ponderadas por `ops_weights`).
 
     Devolve (imagem_reflowada, ops_aplicadas). `ar_relayout` vai por ULTIMO (muda o canvas).
-    A imagem resultante e' um exemplo LIMPO (label 0) — nunca um bug.
+    A imagem resultante e' um exemplo LIMPO (label 0) — nunca um bug. `target_aspects` (se dado)
+    faz `ar_relayout` mirar a distribuicao de AR dos ERROS (ver _ar_relayout).
     """
     w = ops_weights or DEFAULT_REFLOW_WEIGHTS
     names = [n for n in REFLOW_OPS if w.get(n, 0.0) > 0.0]
@@ -170,5 +185,8 @@ def reflow_augment(img: Image.Image, rng: random.Random, *,
     chosen.sort(key=lambda n: n == "ar_relayout")             # mudanca de canvas por ultimo
     out = img
     for name in chosen:
-        out = _FUNCS[name](out, rng)
+        if name == "ar_relayout":
+            out = _ar_relayout(out, rng, target_aspects=target_aspects)
+        else:
+            out = _FUNCS[name](out, rng)
     return out, chosen

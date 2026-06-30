@@ -22,6 +22,32 @@ from .reflow import reflow_augment, DEFAULT_REFLOW_WEIGHTS
 from .features import read_manifest
 
 
+def error_aspects(processed_dir: Path, split: str = "train") -> list[float]:
+    """AR (w/h) das imagens de ERRO (label=1) de um split do dataset plano.
+
+    Distribuicao-alvo para o reflow near-square (Fase 2.4): faz as variantes LIMPAS cobrirem as
+    resolucoes onde os erros vivem (mediana ~0.96). Usa SO o split de TREINO por padrao — nao
+    espia val/test (AR nao e' rotulo, mas mantemos o protocolo limpo). Le so o header (PIL.size).
+    """
+    import csv
+    from PIL import Image
+    labels = Path(processed_dir) / "labels.csv"
+    if not labels.exists():
+        return []
+    ars: list[float] = []
+    with open(labels) as f:
+        for r in csv.DictReader(f):
+            if r.get("split") == split and str(r.get("label")) == "1":
+                try:
+                    with Image.open(Path(processed_dir) / r["path"]) as im:
+                        w, h = im.size
+                    if w > 0 and h > 0:
+                        ars.append(w / h)
+                except Exception:
+                    continue
+    return ars
+
+
 def benign_augment(img: Image.Image, rng: random.Random) -> Image.Image:
     """Mudanca de APARENCIA inofensiva (round-trip de resolucao + jitter foto-metrico leve).
 
@@ -62,6 +88,7 @@ def extract_synthetic(
     reflow_ops: dict | None = None,
     max_reflow_ops: int = 2,
     benign: bool = False,
+    target_aspects: list[float] | None = None,
 ) -> dict:
     """Gera embeddings sinteticos rotulados a partir de imagens LIMPAS.
 
@@ -108,7 +135,8 @@ def extract_synthetic(
             # regiao morta do erro fica inequivoca sobre o canvas reflowado). No legado foi
             # resultado NEGATIVO -> mantido off por padrao.
             if p_reflow_pos > 0.0 and rng.random() < p_reflow_pos:
-                base, _ = reflow_augment(base, rng, ops_weights=rw, max_ops=max_reflow_ops)
+                base, _ = reflow_augment(base, rng, ops_weights=rw, max_ops=max_reflow_ops,
+                                         target_aspects=target_aspects)
             if benign:
                 base = benign_augment(base, rng)
             corr, t_applied = inject(base, rng, n_errors=n_err, types=pool)
@@ -146,6 +174,7 @@ def extract_reflow_clean(
     benign: bool = False,
     seed: int = 0,
     batch_size: int = 16,
+    target_aspects: list[float] | None = None,
 ) -> dict:
     """Gera embeddings de variantes LIMPAS de REFLOW (label=0, category='clean').
 
@@ -177,7 +206,8 @@ def extract_reflow_clean(
     for i, r in enumerate(tqdm(clean_rows, desc="reflow-clean")):
         img = load_image(r["path"])
         for _ in range(n_variants):
-            out, ops = reflow_augment(img, rng, ops_weights=rw, max_ops=max_reflow_ops)
+            out, ops = reflow_augment(img, rng, ops_weights=rw, max_ops=max_reflow_ops,
+                                      target_aspects=target_aspects)
             if benign:
                 out = benign_augment(out, rng)
             x, m = backbone.preprocess(out)   # mascara reflete o NOVO aspecto (ar_relayout)
