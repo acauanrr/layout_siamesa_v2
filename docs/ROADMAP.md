@@ -469,3 +469,20 @@ poderia voltar). Execução pronta (spec [§7](SPEC_COLETA_FOLDABLE.md)): coleta
 --src data/processed_v3_plus --extra data/clean_extra_fold --dest data/processed_v3_plus_fold` →
 `run_experiment --config configs/plus_fold_L_reg4.yaml` → `domain_slice_eval --subset form-factor`.
 **Gate de aceite: a especificidade foldable tem que sair de 0.512.**
+
+#### Sem coleta possível → extrair dos dados atuais (A1–A4) + relatório honesto — jun/2026
+
+Restrição nova: **a coleta de fotos foldable ficou indisponível**. Pivot: esgotar os métodos que
+**não precisam de dados novos** e reportar honestamente. Relatório completo:
+[`docs/RELATORIO_FOLDABLE.md`](RELATORIO_FOLDABLE.md). Reprodução: `scripts/foldable_operating_point.py`.
+
+- **A2** (backbone p/ o foldable): B_reg4 ≈ L_reg4 **dentro do ruído** (A4: diff +0.03, IC95 [−0.04, 0.14]) → manter L_reg4.
+- **A1** (recalibração): o lever real **não** foi o limiar por bucket (+0.02), foi trocar o gate
+  **fusão → protótipo** (a fusão degrada o ranking: proto AUROC 0.751 > fusão 0.691 já no global).
+- **Resultado:** L_reg4 + **gate de protótipo** + limiar foldable → especificidade foldable
+  **0.512 → 0.683** (IC95 [0.571, 0.835]) com recall mantido (~0.64), **de graça**. AUROC foldable
+  0.66 [0.55, 0.82] — modelo **moderado**, melhoria **real porém sample-bound**.
+- **A4** (estabilidade): ICs ~±0.15 (41 clean) → **teto DUPLO provado**: conteúdo (#1) **e** amostra.
+- **Decisão de produto:** adotar o gate de protótipo no bucket foldable (sem downside); escopo =
+  taxonomia grossa + `black_bars`; reportar o falso-alarme foldable abertamente. Só **dado foldable
+  real** (tooling CABEADO acima) levanta o teto.
