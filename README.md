@@ -163,28 +163,39 @@ python scripts/evaluate.py --config configs/default.yaml --final-test   # TESTE 
 Reconstruir o dataset do zero (dedup + split agrupado por ticket): `scripts/rebuild_processed_v3.py`.
 Seleção honesta de hiperparâmetros (sem tocar o teste): `grid_search.py`, `nested_cv.py`, `multiseed_stability.py`.
 
-## Inferência
+## Inferência (roteamento por domínio)
+
+A inferência **roteia pela resolução nativa**: telas **near-square (foldable)** → gate de **protótipo +
+limiar foldable**; as demais → gate **fundido global**. Isso corrige o falso-alarme no foldable (espec
+0.51 → 0.68), de graça. Ver [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md).
 
 ```bash
-python scripts/predict.py --models artifacts/models img1.png img2.png   # p(erro) por imagem + decisão
+python scripts/predict.py --models artifacts/bb_L_reg4/models img1.png img2.png   # p(erro) + decisão
 ```
 ```python
 from siamese.infer import Predictor
-print(Predictor("artifacts/models").predict("tela.png"))   # {'p_erro': 0.71, 'decisao': 'ERRO', ...}
+r = Predictor("artifacts/bb_L_reg4/models", route_foldable=True).predict("tela.png")   # default True
+# {'decisao': 'ERRO', 'gate': 'foldable_prototipo'|'global_fusao', 'near_square': bool, 'p_erro': ...}
 ```
 
 ## Limitação central (honesta)
 
-A classe `clean` vem de **um único device** (2076×2152, único form-factor). Por isso (a) não dá para
-medir detecção em erros reais **sem** o confound, e (b) especificidade/precisão no mundo real ficam
-instáveis (poucas limpas). É **limite de dados**, não do modelo. A única alavanca para subir o teto é
-**coletar telas limpas diversas** (outros devices/resoluções, fotos, landscape). Detalhes e
-justificativas em [`docs/DESIGN.md`](docs/DESIGN.md).
+O detector é **bom no caso comum** (phone/desktop: AUROC livre-confound ~0.80) mas **triagem no
+foldable** (near-square, o domínio de produção: AUROC ~0.66, especificidade 0.68 roteada). A clean
+foldable vem de **16 sessões de 1 device** → o gargalo é **DADO**, com **teto DUPLO provado**: conteúdo
+(sintetizar aspecto não move a especificidade) **e** tamanho de amostra (41 clean → IC ~±0.15). Só
+**dado foldable real** levanta (infra de coleta pronta). Estado honesto e por-domínio:
+[`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) · [`docs/RELATORIO_FOLDABLE.md`](docs/RELATORIO_FOLDABLE.md) ·
+[`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## Documentação
 
 | Documento | Para quê |
 |---|---|
+| [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) | **⭐ Comece aqui** — o que faz/não faz **por domínio**, pontos de operação, teto |
+| [`docs/RELATORIO_FOLDABLE.md`](docs/RELATORIO_FOLDABLE.md) | Domínio foldable: melhor config extraível + os dois tetos (conteúdo + amostra) |
+| [`docs/SPEC_COLETA_FOLDABLE.md`](docs/SPEC_COLETA_FOLDABLE.md) | O que levantaria o teto: spec de coleta foldable (infra pronta) |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Histórico completo das fases (diagnóstico → tooling → desfecho) |
 | [`docs/RELATORIO_FINAL_PROCESSED_V3.md`](docs/RELATORIO_FINAL_PROCESSED_V3.md) | **Resultados + veredito** (confound, vazamento, métrica recomendada) |
 | [`docs/COMPARACAO_KNN_TRIPLET.md`](docs/COMPARACAO_KNN_TRIPLET.md) | k-NN vs protótipo · Triplet vs SupCon (respostas à supervisão, com dados) |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Detalhamento técnico e justificativa de cada decisão |

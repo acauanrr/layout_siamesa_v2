@@ -34,6 +34,27 @@ def test_aux_err_binary_parity():
         assert abs(infer_val - ev[i]) < 1e-9
 
 
+def test_gate_routing_por_dominio():
+    """Roteamento por domínio (docs/RELATORIO_FOLDABLE.md): near-square decide pelo PROTÓTIPO +
+    limiar foldable; resto pelo FUNDIDO + limiar global; route_foldable=False ou limiar NaN -> global."""
+    base = dict(foldable_threshold=0.30, foldable_ar_lo=0.85, foldable_ar_hi=1.18, threshold=0.60)
+    # near-square (AR 0.96): decide por score_proto vs 0.30, IGNORANDO p_erro/limiar global
+    is_err, gate, lim, ns = Predictor._gate_decision(0.40, 0.10, 0.96, route_foldable=True, **base)
+    assert ns and gate == "foldable_prototipo" and lim == 0.30 and is_err is True     # 0.40>=0.30
+    is_err, *_ = Predictor._gate_decision(0.20, 0.99, 0.96, route_foldable=True, **base)
+    assert is_err is False                                                            # 0.20<0.30 apesar de p_erro=0.99
+    # NÃO near-square (AR 0.45): decide por p_erro vs 0.60
+    is_err, gate, lim, ns = Predictor._gate_decision(0.99, 0.70, 0.45, route_foldable=True, **base)
+    assert (not ns) and gate == "global_fusao" and lim == 0.60 and is_err is True     # 0.70>0.60
+    # route_foldable=False -> global mesmo em near-square
+    _, gate, _, ns = Predictor._gate_decision(0.40, 0.10, 0.96, route_foldable=False, **base)
+    assert (not ns) and gate == "global_fusao"
+    # limiar foldable NaN (val sem near-square) -> não roteia
+    _, gate, _, ns = Predictor._gate_decision(0.40, 0.10, 0.96, route_foldable=True,
+                                              **{**base, "foldable_threshold": float("nan")})
+    assert (not ns) and gate == "global_fusao"
+
+
 def test_fusion_formula_matches_sklearn():
     # evaluate.py salva fus.coef_/intercept_ no bundle; infer.py reaplica
     # sigmoid(coef.[sp,ae]+intercept). Provar que isso == predict_proba (paridade do gate).

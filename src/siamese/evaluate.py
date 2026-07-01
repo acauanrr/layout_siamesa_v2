@@ -647,6 +647,18 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
     else:
         save_cat_protos = cat_protos if cat_protos is not None else np.zeros((0, d), dtype=np.float32)
         save_cat_ids = cat_proto_ids if cat_proto_ids is not None else np.zeros((0,), dtype=int)
+    # limiar FOLDABLE (near-square) sobre o score do GATE (protótipo). A clean near-square pontua
+    # alto no gate fundido+limiar global -> falso-alarme (docs/RELATORIO_FOLDABLE.md). Salvamos um
+    # limiar SEPARADO calibrado SÓ na clean near-square da val (objetivo specificity), p/ a
+    # inferência ROTEAR o bucket foldable a esse gate (espec foldable 0.51 -> 0.68, de graça).
+    # NaN se a val não tem near-square suficiente -> inferência não roteia (fica no gate global).
+    FOLD_AR = (0.85, 1.18)
+    _res_va = _resolutions(va["path"]).astype(float)
+    _ar_va = _res_va[:, 0] / np.maximum(_res_va[:, 1], 1.0)
+    _fold_va = (va["label"] == 0) & (_ar_va >= FOLD_AR[0]) & (_ar_va <= FOLD_AR[1])
+    _tgt_spec = getattr(cfg.decision, "target_specificity", 0.80)
+    foldable_thr = (float(np.quantile(sp_va[_fold_va], _tgt_spec))
+                    if int(_fold_va.sum()) >= 8 else float("nan"))
     np.savez(
         Path(cfg.paths.models_dir) / "decision.npz",
         prototypes=protos,
@@ -664,7 +676,11 @@ def evaluate(cfg, device: str | None = None, final_test: bool = False) -> dict:
         gate_method=np.array([gate_method]),
         stage2_method=np.array([cfg.decision.stage2_method]),
         knn_k=np.array([cfg.decision.knn_k]),
-    )
+        foldable_proto_threshold=np.array([foldable_thr]),
+        foldable_ar_lo=np.array([FOLD_AR[0]]),
+        foldable_ar_hi=np.array([FOLD_AR[1]]),
+        model_name=np.array([cfg.backbone.model_name]),   # SEM isto a inferência usa o backbone default
+    )                                                     # (S) e falha em bundles reg4/large (dim!=)
     _confusion_plot(rep_dir, tp, tn, fp, fn, report["ponto_operacao"], split_name=ho_name.upper(), suffix="")
     opt = report["ponto_operacao_treino"]; ct = opt["confusao"]
     _confusion_plot(rep_dir, ct["TP"], ct["TN"], ct["FP"], ct["FN"], opt,
